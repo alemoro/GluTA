@@ -6,114 +6,243 @@ classdef GluTA < matlab.apps.AppBase
     
     % app components
     properties (Access = public)
-        UIFigure                       matlab.ui.Figure
-        FileMenu                       matlab.ui.container.Menu
-        FileMenuImport                 matlab.ui.container.Menu
-        FileMenuOpen                   matlab.ui.container.Menu
-        FileMenuSave                   matlab.ui.container.Menu
-        FileMenuExport                 matlab.ui.container.Menu
-        FileMenuLabelCondition         matlab.ui.container.Menu
-        TabGroup                       matlab.ui.container.TabGroup
-        MainTab                        matlab.ui.container.Tab
-        UIAxesMovie                    matlab.ui.control.UIAxes
-        UIAxesPlot                     matlab.ui.control.UIAxes
-        PlotTypeButtonGroup            matlab.ui.container.ButtonGroup
-        AllandmeanButton               matlab.ui.control.RadioButton
-        SingletracesButton             matlab.ui.control.RadioButton
-        DetrendButton                  matlab.ui.control.StateButton
-        ExporttraceButton              matlab.ui.control.StateButton
-        PrevButton                     matlab.ui.control.Button
-        TextSynNumber                  matlab.ui.control.EditField
-        NextButton                     matlab.ui.control.Button
-        AddpeaksButton                 matlab.ui.control.Button
-        DeletepeaksButton              matlab.ui.control.Button
-        FixYAxisButton                 matlab.ui.control.StateButton
-        ShowMovieButton                matlab.ui.control.StateButton
-        SliderMovie                    matlab.ui.control.Slider
-        TabListRecording               matlab.ui.container.TabGroup
-        CellIDTab                      matlab.ui.container.Tab
-        ListCell_ID                    matlab.ui.control.ListBox
-        RecIDTab                       matlab.ui.container.Tab
-        ListRec_ID                     matlab.ui.control.ListBox
-        ShowROIsButton                 matlab.ui.control.StateButton
-        DetecteventinButtonGroup       matlab.ui.container.ButtonGroup
-        AllFOVsButton                  matlab.ui.control.RadioButton
-        CurrentlistButton              matlab.ui.control.RadioButton
-        SelectedFOVButton              matlab.ui.control.RadioButton
-        DetectionoptionsPanel          matlab.ui.container.Panel
-        SaveButton                     matlab.ui.control.Button
-        DefaultButton                  matlab.ui.control.Button
-        LoadoptionsPanel               matlab.ui.container.Panel
-        MultiplerecordingCheckBox      matlab.ui.control.CheckBox
-        FrequencyEditFieldLabel        matlab.ui.control.Label
-        FrequencyEditField             matlab.ui.control.NumericEditField
-        IdentifierEditFieldLabel       matlab.ui.control.Label
-        IdentifierEditField            matlab.ui.control.EditField
-        StimulationCheckBox            matlab.ui.control.CheckBox
-        IdentifierEditField_2Label     matlab.ui.control.Label
-        IdentifierEditField_2          matlab.ui.control.EditField
-        HowmanystimEditFieldLabel      matlab.ui.control.Label
-        HowmanystimEditField           matlab.ui.control.NumericEditField
-        ROIDetectionPanel              matlab.ui.container.Panel
-        ExpectedROIsizepxEditFieldLabel  matlab.ui.control.Label
-        ExpectedROIsizepxEditField     matlab.ui.control.NumericEditField
-        GaussianwindowsizeEditFieldLabel  matlab.ui.control.Label
-        GaussianwindowsizeEditField    matlab.ui.control.NumericEditField
-        ProminenceestimationDropDownLabel  matlab.ui.control.Label
-        ProminenceestimationDropDown   matlab.ui.control.DropDown
-        ROIprominencesigmaEditFieldLabel  matlab.ui.control.Label
-        ROIprominencesigmaEditField    matlab.ui.control.NumericEditField
-        PeakDetectionPanel             matlab.ui.container.Panel
-        ThresholdmethodDropDownLabel   matlab.ui.control.Label
-        ThresholdmethodDropDown        matlab.ui.control.DropDown
-        ThresholdsigmaEditFieldLabel   matlab.ui.control.Label
-        ThresholdsigmaEditField        matlab.ui.control.NumericEditField
-        MinumumprominenceEditFieldLabel  matlab.ui.control.Label
-        MinumumprominenceEditField     matlab.ui.control.NumericEditField
-        MinumumDurationEditFieldLabel  matlab.ui.control.Label
-        MinumumDurationEditField       matlab.ui.control.NumericEditField
-        MinumumDistanceEditFieldLabel  matlab.ui.control.Label
-        MinumumDistanceEditField       matlab.ui.control.NumericEditField
-        MaximumDurationEditFieldLabel  matlab.ui.control.Label
-        MaximumDurationEditField       matlab.ui.control.NumericEditField
-        DetrendoptionsPanel            matlab.ui.container.Panel
-        MethodDropDownLabel            matlab.ui.control.Label
-        MethodDropDown                 matlab.ui.control.DropDown
-        WindowsizeEditFieldLabel       matlab.ui.control.Label
-        WindowsizeEditField            matlab.ui.control.NumericEditField
-        VisualizeDropDownLabel         matlab.ui.control.Label
-        VisualizeDropDown              matlab.ui.control.DropDown
-        StimulationprotocolPanel       matlab.ui.container.Panel
-        MergedrecordingsCheckBox       matlab.ui.control.CheckBox
-        BaselinetimesEditFieldLabel    matlab.ui.control.Label
-        BaselinetimesEditField         matlab.ui.control.NumericEditField
-        NumberofAPEditFieldLabel       matlab.ui.control.Label
-        NumberofAPEditField            matlab.ui.control.NumericEditField
-        APfrequencyEditFieldLabel      matlab.ui.control.Label
-        APfrequencyEditField           matlab.ui.control.NumericEditField
-        NumberoftrainsEditFieldLabel   matlab.ui.control.Label
-        NumberoftrainsEditField        matlab.ui.control.NumericEditField
-        IdentifierEditField_3Label     matlab.ui.control.Label
-        IdentifierEditField_3          matlab.ui.control.EditField
-        ImportROIsButton               matlab.ui.control.Button
-        DetectROIsButton               matlab.ui.control.Button
-        DetectPeaksButton              matlab.ui.control.Button
-        TableTab                       matlab.ui.container.Tab
-        UITable                        matlab.ui.control.Table
-        UIAxes3                        matlab.ui.control.UIAxes
-        UIAxes4                        matlab.ui.control.UIAxes
+        UIFigure matlab.ui.Figure
+        FileMenu
+        FileMenuImport
+        FileMenuOpen
+        FileMenuSave
+        FileMenuExport
+        FileMenuLabelCondition
+        TabGroup
+        MainTab
+        UIAxesMovie
+        UIAxesPlot
+        PlotTypeButtonGroup
+        AllAndMeanButton
+        SingleTracesButton
+        DetrendButton
+        ExportTraceButton
+        PrevButton
+        TextSynNumber
+        NextButton
+        AddPeaksButton
+        DeletePeaksButton
+        FixYAxisButton
+        ShowMovieButton
+        SliderMovie
+        TabListRecording
+        CellIDTab
+        List_CellID
+        RecIDTab
+        ListRec_ID
+        ShowROIsButton
+        DetectEventButtonGroup
+        AllFOVsButton
+        CurrentListButton
+        SelectedFOVButton
+        DetectionOptionsPanel
+        SaveButton
+        DefaultButton
+        LoadOptionsPanel
+        MultipleRecordingCheckBox
+        ImagingFrequencyLabel
+        ImagingFrequencyEdit
+        RecordingIdentifierLabel
+        RecordingIdentifierEdit
+        StimulationCheckBox
+        StimulationIdentifierLabel
+        StimulationIdentifierEdit
+        StimNumLabel
+        StimNumEdit
+        ROIDetectionPanel
+        ROISizeLabel
+        ROISizeEdit
+        ROISigmaLabel
+        ROISigmaEdit
+        ProminenceROIsDropDownLabel
+        ProminenceROIsDropDown
+        ProminenceROISigmaLabel
+        ProminenceROISigmaEdit
+        PeakDetectionPanel
+        PeakThresholdMethodDropDownLabel
+        PeakThresholdMethodDropDown
+        PeakSigmaLabel
+        PeakSigmaEdit
+        PeakMinProminenceLabel
+        PeakMinProminenceEdit
+        PeakMinDurationLabel
+        PeakMinDurationEdit
+        MinDistanceLabel
+        PeakMinDistanceEdit
+        MaxDurationLabel
+        PeakMaxDurationEdit
+        DetrendOptionsPanel
+        MethodDropDownLabel
+        MethodDropDown
+        WindowSizeLabel
+        WindowSizeEdit
+        VisualizeDropDownLabel
+        VisualizeDropDown
+        StimulationProtocolPanel
+        MergedRecordingsCheckBox
+        BaselineSecLabel
+        BaselineSecEdit
+        APNumLabel
+        APNumEdit
+        APFreqLabel
+        APFreqEdit
+        TrainsNumLabel
+        TrainsNumEdit
+        TrainsIDsLabel
+        TrainsIDsEdit
+        ImportROIsButton
+        DetectROIsButton
+        DetectPeaksButton
+        TableTab
+        UITable
+        UIAxes3
+        UIAxes4
     end
     
-    % File storage properties
+    % Housekeeping properties
     properties (Access = private)
+        
     end
     
+    % User properties
+    properties (Access = public)
+        Opt % store the settings options
+        imgT % store the actual data
+    end
     % Interaction methods
     methods (Access = private)
     end
     
      % Callbacks methods
     methods (Access = private)
+        function FileMenuImportSelected(app, event)
+            % First locate the folder with the data
+            imgPath = uigetdir(app.Opt.LastPath, 'Select Image folder');
+            togglePointer(app)
+            try
+                if imgPath ~= 0
+                    % Store the last path
+                    app.Opt.LastPath = imgPath;
+                    % Load the info to locate the data
+                    imgFiles = dir(fullfile(imgPath, '*.tif'));
+                    nFiles = numel(imgFiles);
+                    if nFiles == 0
+                        warndlg('No tif images in the current folder');
+                        togglePointer(app)
+                        return
+                    end
+                    hWait = waitbar(0, 'Loading images data');
+                    imgFltr = contains({imgFiles.name}, app.Opt.StimIDs) | contains({imgFiles.name}, app.Opt.RecIDs);
+                    nFiles = sum(imgFltr);
+                    tempT = cell(nFiles+1, 9);
+                    tempT(1,:) = {'Filename', 'CellID', 'Week', 'BatchID', 'ConditionID', 'CoverslipID', 'RecID', 'StimID', 'Fs'};
+                    % Get the name info
+                    nameParts = regexp({imgFiles.name}, '_', 'split')';
+                    nameParts = nameParts(imgFltr);
+                    tempT(2:end,1) = fullfile({imgFiles(imgFltr).folder}, {imgFiles(imgFltr).name});
+                    tempT(2:end,2) = cellfun(@(x) x(1:end-4), {imgFiles(imgFltr).name}, 'UniformOutput', false);
+                    for f = 1:nFiles
+                        waitbar(f/nFiles, hWait, sprintf('Loading movie data %0.2f%%', f/nFiles*100));
+                        tempT{f+1,3} = weeknum(datetime(nameParts{f}{1}, 'InputFormat', 'yyMMdd'));
+                        tempT{f+1,4} = nameParts{f}{3};
+                        tempT{f+1,5} = nameParts{f}{2};
+                        tempT{f+1,6} = nameParts{f}{4};
+                        tempT{f+1,7} = nameParts{f}{5};
+                        tempT{f+1,8} = nameParts{f}{6};
+                        % Try to get info on the actual timeStamp but not now
+                        tempT{f+1,8} = app.Opt.ImgFrequency;
+                    end
+                    app.imgT = cell2table(tempT(2:end,:), 'VariableNames', tempT(1,:));
+                end
+            catch ME
+            end
+        end
+        
+        function SaveButtonPushed(app, event)
+            % Retrieve the settings from the UI and save them in the app
+            app.Opt.ImgFrequency = app.ImagingFrequencyEdit.Value;
+            app.Opt.MultiRecording = app.MultipleRecordingCheckBox.Value;
+            app.Opt.RecIDs = app.RecordingIdentifierEdit.Value;
+            app.Opt.MultiStimulation = app.StimulationCheckBox.Value;
+            app.Opt.StimIDs = app.StimulationIdentifierEdit.Value;
+            app.Opt.StimNum = app.StimNumEdit.Value;
+            app.Opt.RoiSize = app.ROISizeEdit.Value;
+            app.Opt.RoiSigma = app.ROISigmaEdit.Value;
+            app.Opt.RoiProminence = app.ProminenceROIsDropDown.Value;
+            app.Opt.RoiProminenceSigma = app.ProminenceROISigmaEdit.Value;
+            app.Opt.PeakThreshold = app.PeakThresholdMethodDropDown.Value;
+            app.Opt.PeakThrSigma = app.PeakSigmaEdit.Value;
+            app.Opt.PeakMinProm = app.PeakMinProminenceEdit.Value;
+            app.Opt.PeakMinDistance = app.PeakMinDistanceEdit.Value;
+            app.Opt.PeakMinDuration = app.PeakMinDurationEdit.Value;
+            app.Opt.PeakMaxDuration = app.PeakMaxDurationEdit.Value;
+            app.Opt.Detrending = app.MethodDropDown.Value;
+            app.Opt.DetrendSize = app.WindowSizeEdit.Value;
+            app.Opt.DetectTrace = app.VisualizeDropDown.Value;
+        end
+        
+        function DefaultButtonPushed(app, event)
+            app.Opt.LastPath = pwd;
+            app.Opt.ImgFrequency = 50;
+            app.Opt.MultiRecording = true;
+            app.Opt.RecIDs = 'fov';
+            app.Opt.MultiStimulation = true;
+            app.Opt.StimIDs = 'Hz';
+            app.Opt.StimNum = 4;
+            app.Opt.RoiSize = 5;
+            app.Opt.RoiSigma = 11;
+            app.Opt.RoiProminence = 'Standard Deviation';
+            app.Opt.RoiProminenceSigma = 2;
+            app.Opt.PeakThreshold = 'MAD';
+            app.Opt.PeakThrSigma = 2;
+            app.Opt.PeakMinProm = 1;
+            app.Opt.PeakMinDistance = 10;
+            app.Opt.PeakMinDuration = 5;
+            app.Opt.PeakMaxDuration = 60;
+            app.Opt.Detrending = 'None';
+            app.Opt.DetrendSize = 100;
+            app.Opt.DetectTrace = 'Raw';
+            updateOptions(app)
+        end
+    end
+    
+    % Housekeeping methods
+    methods (Access = public)
+        function togglePointer(app)
+            if strcmp(app.UIFigure.Pointer, 'arrow')
+                app.UIFigure.Pointer = 'watch';
+            else
+                app.UIFigure.Pointer = 'arrow';
+            end
+            drawnow();
+        end
+        
+        function updateOptions(app)
+            app.ImagingFrequencyEdit.Value = app.Opt.ImgFrequency;
+            app.MultipleRecordingCheckBox.Value = app.Opt.MultiRecording;
+            app.RecordingIdentifierEdit.Value = app.Opt.RecIDs;
+            app.StimulationCheckBox.Value = app.Opt.MultiStimulation;
+            app.StimulationIdentifierEdit.Value = app.Opt.StimIDs;
+            app.StimNumEdit.Value = app.Opt.StimNum;
+            app.ROISizeEdit.Value = app.Opt.RoiSize;
+            app.ROISigmaEdit.Value = app.Opt.RoiSigma;
+            app.ProminenceROIsDropDown.Value = app.Opt.RoiProminence;
+            app.ProminenceROISigmaEdit.Value = app.Opt.RoiProminenceSigma;
+            app.PeakThresholdMethodDropDown.Value = app.Opt.PeakThreshold;
+            app.PeakSigmaEdit.Value = app.Opt.PeakThrSigma;
+            app.PeakMinProminenceEdit.Value = app.Opt.PeakMinProm;
+            app.PeakMinDistanceEdit.Value = app.Opt.PeakMinDistance;
+            app.PeakMinDurationEdit.Value = app.Opt.PeakMinDuration;
+            app.PeakMaxDurationEdit.Value = app.Opt.PeakMaxDuration;
+            app.MethodDropDown.Value = app.Opt.Detrending;
+            app.WindowSizeEdit.Value = app.Opt.DetrendSize;
+            app.VisualizeDropDown.Value = app.Opt.DetectTrace;
+        end
     end
     
     % Create the UIFigure and components
@@ -143,430 +272,137 @@ classdef GluTA < matlab.apps.AppBase
             % Define multiple tabs where to store the UI
             app.TabGroup = uitabgroup(app.UIFigure, 'Position', [2 3 1894 940]);
             app.MainTab = uitab(app.TabGroup, 'Title', 'Main');
+            app.TableTab = uitab(app.TabGroup, 'Title', 'Table');
             
             % Create the visual components: Movie and plot axes with slider
-            app.UIAxesMovie = uiaxes(app.MainTab, 'Position', [36 63 806 806], 'Visible', 'on');
+            app.UIAxesMovie = uiaxes(app.MainTab, 'Position', [36 63 806 806], 'Visible', 'off');
             title(app.UIAxesMovie, ''); xlabel(app.UIAxesMovie, ''); ylabel(app.UIAxesMovie, '')
-            app.UIAxesMovie.YLabel.String = ''; app.UIAxesMovie.XLabel.String = ''; app.UIAxesMovie.Title.String = '';
             app.UIAxesPlot = uiaxes(app.MainTab, 'Position', [870 12 990 327], 'Visible', 'on');
             title(app.UIAxesPlot, ''); xlabel(app.UIAxesPlot, 'Time (s)'); ylabel(app.UIAxesPlot, 'iGluSnFR (a.u.)')
+            app.SliderMovie = uislider(app.MainTab, 'Position', [36 44 806 3], 'Visible', 'off');
             
-            % Create PlotTypeButtonGroup
-            app.PlotTypeButtonGroup = uibuttongroup(app.MainTab);
-            app.PlotTypeButtonGroup.Title = 'Plot Type';
-            app.PlotTypeButtonGroup.Position = [885 381 118 73];
+            % Create Plot Type Button Group
+            app.PlotTypeButtonGroup = uibuttongroup(app.MainTab, 'Title', 'Plot Type', 'Position', [885 381 118 73]);
+            app.AllAndMeanButton = uiradiobutton(app.PlotTypeButtonGroup, 'Text', 'All and mean', 'Position', [11 27 92 22],...
+                'Value', true, 'Enable', 'off');
+            app.SingleTracesButton = uiradiobutton(app.PlotTypeButtonGroup, 'Text', 'Single trace', 'Position', [11 5 91 22],...
+                'Enable', 'off');
+            
+            % Create DetrendButton, Export and Fix Y axis value
+            app.DetrendButton = uibutton(app.MainTab, 'state', 'Text', 'Detrend', 'Position', [1560 338 100 22],...
+                'Enable', 'off');
+            app.ExportTraceButton = uibutton(app.MainTab, 'state', 'Text', 'Export trace', 'Position', [1032 381 100 22],...
+                'Enable', 'off');
+            app.FixYAxisButton = uibutton(app.MainTab, 'state', 'Text', 'Fix Y Axis', 'Position', [1450 338 100 22],...
+                'Enable', 'off');
+            
+            % Create Synapse navigation panel
+            app.PrevButton = uibutton(app.MainTab, 'push', 'Text', 'Prev', 'Position', [1089 338 36 22],...
+                'Enable', 'off');
+            app.TextSynNumber = uieditfield(app.MainTab, 'text', 'Position', [1128 338 48 22], 'Value', '1',...
+                'Enable', 'off');
+            app.NextButton = uibutton(app.MainTab, 'push', 'Text', 'Next', 'Position', [1179 338 40 22],...
+                'Enable', 'off');
+            
+            % Create Manual peaks detection panel
+            app.AddPeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Add peaks', 'Position', [1230 338 100 22],...
+                'Enable', 'off');
+            app.DeletePeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Delete peaks', 'Position', [1340 338 100 22],...
+                'Enable', 'off');
+            
+            % Create Movie Toggles
+            app.ShowMovieButton = uibutton(app.MainTab, 'state', 'Text', 'Show Movie', 'Position', [36 878 100 22], 'Enable', 'off');
+            app.ShowROIsButton = uibutton(app.MainTab, 'state', 'Text', 'Show ROIs', 'Position', [153 878 100 22], 'Enable', 'off');
+            
+            % Create Tabs for List Recording
+            app.TabListRecording = uitabgroup(app.MainTab, 'Position', [883 605 260 274]);
+            app.CellIDTab = uitab(app.TabListRecording, 'Title', 'Cell ID');
+            app.List_CellID = uilistbox(app.CellIDTab, 'Position', [10 11 239 227], 'Items', {''}, 'Enable', 'off');
+            app.RecIDTab = uitab(app.TabListRecording, 'Title', 'Rec ID');
+            app.ListRec_ID = uilistbox(app.RecIDTab, 'Position', [10 11 239 227], 'Items', {''}, 'Enable', 'off');
 
-            % Create AllandmeanButton
-            app.AllandmeanButton = uiradiobutton(app.PlotTypeButtonGroup);
-            app.AllandmeanButton.Text = 'All and mean';
-            app.AllandmeanButton.Position = [11 27 92 22];
-            app.AllandmeanButton.Value = true;
-
-            % Create SingletracesButton
-            app.SingletracesButton = uiradiobutton(app.PlotTypeButtonGroup);
-            app.SingletracesButton.Text = 'Single traces';
-            app.SingletracesButton.Position = [11 5 91 22];
-
-            % Create DetrendButton
-            app.DetrendButton = uibutton(app.MainTab, 'state');
-            app.DetrendButton.Text = 'Detrend';
-            app.DetrendButton.Position = [1560 338 100 22];
-
-            % Create ExporttraceButton
-            app.ExporttraceButton = uibutton(app.MainTab, 'state');
-            app.ExporttraceButton.Text = 'Export trace';
-            app.ExporttraceButton.Position = [1032 381 100 22];
-
-            % Create PrevButton
-            app.PrevButton = uibutton(app.MainTab, 'push');
-            app.PrevButton.Position = [1089 338 36 22];
-            app.PrevButton.Text = 'Prev';
-
-            % Create TextSynNumber
-            app.TextSynNumber = uieditfield(app.MainTab, 'text');
-            app.TextSynNumber.Position = [1128 338 48 22];
-            app.TextSynNumber.Value = '1';
-
-            % Create NextButton
-            app.NextButton = uibutton(app.MainTab, 'push');
-            app.NextButton.Position = [1179 338 40 22];
-            app.NextButton.Text = 'Next';
-
-            % Create AddpeaksButton
-            app.AddpeaksButton = uibutton(app.MainTab, 'push');
-            app.AddpeaksButton.Position = [1230 338 100 22];
-            app.AddpeaksButton.Text = 'Add peaks';
-
-            % Create DeletepeaksButton
-            app.DeletepeaksButton = uibutton(app.MainTab, 'push');
-            app.DeletepeaksButton.Position = [1340 338 100 22];
-            app.DeletepeaksButton.Text = 'Delete peaks';
-
-            % Create FixYAxisButton
-            app.FixYAxisButton = uibutton(app.MainTab, 'state');
-            app.FixYAxisButton.Text = 'Fix Y Axis';
-            app.FixYAxisButton.Position = [1450 338 100 22];
-
-            % Create ShowMovieButton
-            app.ShowMovieButton = uibutton(app.MainTab, 'state');
-            app.ShowMovieButton.Text = 'Show Movie';
-            app.ShowMovieButton.Position = [36 878 100 22];
-
-            % Create SliderMovie
-            app.SliderMovie = uislider(app.MainTab);
-            app.SliderMovie.Position = [36 44 806 3];
-
-            % Create TabListRecording
-            app.TabListRecording = uitabgroup(app.MainTab);
-            app.TabListRecording.Position = [883 605 260 274];
-
-            % Create CellIDTab
-            app.CellIDTab = uitab(app.TabListRecording);
-            app.CellIDTab.Title = 'Cell ID';
-
-            % Create ListCell_ID
-            app.ListCell_ID = uilistbox(app.CellIDTab);
-            app.ListCell_ID.Position = [10 11 239 227];
-
-            % Create RecIDTab
-            app.RecIDTab = uitab(app.TabListRecording);
-            app.RecIDTab.Title = 'Rec ID';
-
-            % Create ListRec_ID
-            app.ListRec_ID = uilistbox(app.RecIDTab);
-            app.ListRec_ID.Position = [10 11 239 227];
-
-            % Create ShowROIsButton
-            app.ShowROIsButton = uibutton(app.MainTab, 'state');
-            app.ShowROIsButton.Text = 'Show ROIs';
-            app.ShowROIsButton.Position = [153 878 100 22];
-
-            % Create DetecteventinButtonGroup
-            app.DetecteventinButtonGroup = uibuttongroup(app.MainTab);
-            app.DetecteventinButtonGroup.Title = 'Detect event in:';
-            app.DetecteventinButtonGroup.Position = [884 483 123 106];
-
-            % Create AllFOVsButton
-            app.AllFOVsButton = uiradiobutton(app.DetecteventinButtonGroup);
-            app.AllFOVsButton.Text = 'All FOVs';
-            app.AllFOVsButton.Position = [11 60 69 22];
-            app.AllFOVsButton.Value = true;
-
-            % Create CurrentlistButton
-            app.CurrentlistButton = uiradiobutton(app.DetecteventinButtonGroup);
-            app.CurrentlistButton.Text = 'Current list';
-            app.CurrentlistButton.Position = [11 38 80 22];
-
-            % Create SelectedFOVButton
-            app.SelectedFOVButton = uiradiobutton(app.DetecteventinButtonGroup);
-            app.SelectedFOVButton.Text = 'Selected FOV';
-            app.SelectedFOVButton.Position = [11 16 97 22];
-
-            % Create DetectionoptionsPanel
-            app.DetectionoptionsPanel = uipanel(app.MainTab);
-            app.DetectionoptionsPanel.Title = 'Detection options';
-            app.DetectionoptionsPanel.Position = [1188 381 672 498];
-
-            % Create SaveButton
-            app.SaveButton = uibutton(app.DetectionoptionsPanel, 'push');
-            app.SaveButton.Position = [18 10 75 22];
-            app.SaveButton.Text = 'Save';
-
-            % Create DefaultButton
-            app.DefaultButton = uibutton(app.DetectionoptionsPanel, 'push');
-            app.DefaultButton.Position = [102 10 75 22];
-            app.DefaultButton.Text = 'Default';
-
-            % Create LoadoptionsPanel
-            app.LoadoptionsPanel = uipanel(app.DetectionoptionsPanel);
-            app.LoadoptionsPanel.Title = 'Load options';
-            app.LoadoptionsPanel.Position = [11 207 177 255];
-
-            % Create MultiplerecordingCheckBox
-            app.MultiplerecordingCheckBox = uicheckbox(app.LoadoptionsPanel);
-            app.MultiplerecordingCheckBox.Text = 'Multiple recording';
-            app.MultiplerecordingCheckBox.Position = [4 166 117 22];
-
-            % Create FrequencyEditFieldLabel
-            app.FrequencyEditFieldLabel = uilabel(app.LoadoptionsPanel);
-            app.FrequencyEditFieldLabel.Position = [4 204 62 22];
-            app.FrequencyEditFieldLabel.Text = 'Frequency';
-
-            % Create FrequencyEditField
-            app.FrequencyEditField = uieditfield(app.LoadoptionsPanel, 'numeric');
-            app.FrequencyEditField.Position = [98 204 45 22];
-            app.FrequencyEditField.Value = 50;
-
-            % Create IdentifierEditFieldLabel
-            app.IdentifierEditFieldLabel = uilabel(app.LoadoptionsPanel);
-            app.IdentifierEditFieldLabel.Position = [4 137 52 22];
-            app.IdentifierEditFieldLabel.Text = 'Identifier';
-
-            % Create IdentifierEditField
-            app.IdentifierEditField = uieditfield(app.LoadoptionsPanel, 'text');
-            app.IdentifierEditField.Position = [98 137 45 22];
-            app.IdentifierEditField.Value = 'fov';
-
-            % Create StimulationCheckBox
-            app.StimulationCheckBox = uicheckbox(app.LoadoptionsPanel);
-            app.StimulationCheckBox.Text = 'Stimulation';
-            app.StimulationCheckBox.Position = [4 91 81 22];
-
-            % Create IdentifierEditField_2Label
-            app.IdentifierEditField_2Label = uilabel(app.LoadoptionsPanel);
-            app.IdentifierEditField_2Label.Position = [4 57 52 22];
-            app.IdentifierEditField_2Label.Text = 'Identifier';
-
-            % Create IdentifierEditField_2
-            app.IdentifierEditField_2 = uieditfield(app.LoadoptionsPanel, 'text');
-            app.IdentifierEditField_2.Position = [98 57 45 22];
-            app.IdentifierEditField_2.Value = 'fov';
-
-            % Create HowmanystimEditFieldLabel
-            app.HowmanystimEditFieldLabel = uilabel(app.LoadoptionsPanel);
-            app.HowmanystimEditFieldLabel.Position = [4 23 94 22];
-            app.HowmanystimEditFieldLabel.Text = 'How many stim?';
-
-            % Create HowmanystimEditField
-            app.HowmanystimEditField = uieditfield(app.LoadoptionsPanel, 'numeric');
-            app.HowmanystimEditField.Position = [98 23 45 22];
-            app.HowmanystimEditField.Value = 4;
+            % Create ROIs Buttons
+            app.ImportROIsButton = uibutton(app.MainTab, 'push', 'Text', 'Import ROIs', 'Position', [1038 543 100 22], 'Enable', 'off');
+            app.DetectROIsButton = uibutton(app.MainTab, 'push', 'Text', 'Detect ROIs', 'Position', [1038 514 100 22], 'Enable', 'off');
+            
+            % Create Detect Event Button Group
+            app.DetectEventButtonGroup = uibuttongroup(app.MainTab, 'Title', 'Detect events in:', 'Position', [884 483 123 106]);
+            app.AllFOVsButton = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'All FOVs', 'Position', [11 60 69 22], 'Enable', 'off');
+            app.CurrentListButton = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Current list', 'Position', [11 38 80 22], 'Enable', 'off');
+            app.SelectedFOVButton = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Selected FOV', 'Position', [11 16 97 22], 'Enable', 'off');
+            app.DetectPeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Detect Peaks', 'Position', [1038 485 100 22], 'Enable', 'off');
+            
+            % Create DetectionOptionsPanel
+            app.DetectionOptionsPanel = uipanel(app.MainTab, 'Title', 'Detection Options', 'Position', [1188 381 672 498]);
+            app.SaveButton = uibutton(app.DetectionOptionsPanel, 'push', 'Text', 'Save', 'Position', [18 10 75 22],...
+                'ButtonPushedFcn', createCallbackFcn(app, @SaveButtonPushed, true));
+            app.DefaultButton = uibutton(app.DetectionOptionsPanel, 'push', 'Text', 'Default', 'Position', [102 10 75 22],...
+                'ButtonPushedFcn', createCallbackFcn(app, @DefaultButtonPushed, true));
+            
+            % Create LoadOptionsPanel
+            app.LoadOptionsPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Load Options', 'Position', [11 207 177 255]);
+            app.ImagingFrequencyLabel = uilabel(app.LoadOptionsPanel, 'Text', 'Frequency', 'Position', [4 204 63 22]);
+            app.ImagingFrequencyEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 204 45 22], 'Value', app.Opt.ImgFrequency);
+            app.MultipleRecordingCheckBox = uicheckbox(app.LoadOptionsPanel, 'Text', 'Multiple Recordings', 'Position', [4 166 177 22], 'Value', app.Opt.MultiRecording);
+            app.RecordingIdentifierLabel = uilabel(app.LoadOptionsPanel, 'Position', [4 137 52 22], 'Text', 'Identifier');
+            app.RecordingIdentifierEdit = uieditfield(app.LoadOptionsPanel, 'text', 'Position', [98 137 45 22], 'Value', app.Opt.RecIDs);
+            app.StimulationCheckBox = uicheckbox(app.LoadOptionsPanel,'Text', 'Stimulation', 'Position', [4 91 81 22], 'Value', app.Opt.MultiStimulation);
+            app.StimulationIdentifierLabel = uilabel(app.LoadOptionsPanel, 'Position', [4 57 52 22], 'Text', 'Identifier');
+            app.StimulationIdentifierEdit = uieditfield(app.LoadOptionsPanel, 'text', 'Position', [98 57 45 22], 'Value', app.Opt.StimIDs);
+            app.StimNumLabel = uilabel(app.LoadOptionsPanel, 'Position', [4 23 94 22], 'Text', 'How many stim?');
+            app.StimNumEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 23 45 22], 'Value', app.Opt.StimNum);
 
             % Create ROIDetectionPanel
-            app.ROIDetectionPanel = uipanel(app.DetectionoptionsPanel);
-            app.ROIDetectionPanel.Title = 'ROI Detection';
-            app.ROIDetectionPanel.Position = [201 341 453 121];
-
-            % Create ExpectedROIsizepxEditFieldLabel
-            app.ExpectedROIsizepxEditFieldLabel = uilabel(app.ROIDetectionPanel);
-            app.ExpectedROIsizepxEditFieldLabel.HorizontalAlignment = 'right';
-            app.ExpectedROIsizepxEditFieldLabel.Position = [10 69 129 22];
-            app.ExpectedROIsizepxEditFieldLabel.Text = 'Expected ROI size (px)';
-
-            % Create ExpectedROIsizepxEditField
-            app.ExpectedROIsizepxEditField = uieditfield(app.ROIDetectionPanel, 'numeric');
-            app.ExpectedROIsizepxEditField.Position = [154 69 24 22];
-            app.ExpectedROIsizepxEditField.Value = 5;
-
-            % Create GaussianwindowsizeEditFieldLabel
-            app.GaussianwindowsizeEditFieldLabel = uilabel(app.ROIDetectionPanel);
-            app.GaussianwindowsizeEditFieldLabel.Position = [274 70 124 22];
-            app.GaussianwindowsizeEditFieldLabel.Text = 'Gaussian window size';
-
-            % Create GaussianwindowsizeEditField
-            app.GaussianwindowsizeEditField = uieditfield(app.ROIDetectionPanel, 'numeric');
-            app.GaussianwindowsizeEditField.Position = [413 70 24 22];
-            app.GaussianwindowsizeEditField.Value = 11;
-
-            % Create ProminenceestimationDropDownLabel
-            app.ProminenceestimationDropDownLabel = uilabel(app.ROIDetectionPanel);
-            app.ProminenceestimationDropDownLabel.Position = [14 32 128 22];
-            app.ProminenceestimationDropDownLabel.Text = 'Prominence estimation';
-
-            % Create ProminenceestimationDropDown
-            app.ProminenceestimationDropDown = uidropdown(app.ROIDetectionPanel);
-            app.ProminenceestimationDropDown.Items = {'Standard Deviation', 'MAD'};
-            app.ProminenceestimationDropDown.Position = [157 32 100 22];
-            app.ProminenceestimationDropDown.Value = 'Standard Deviation';
-
-            % Create ROIprominencesigmaEditFieldLabel
-            app.ROIprominencesigmaEditFieldLabel = uilabel(app.ROIDetectionPanel);
-            app.ROIprominencesigmaEditFieldLabel.Position = [274 32 128 22];
-            app.ROIprominencesigmaEditFieldLabel.Text = 'ROI prominence sigma';
-
-            % Create ROIprominencesigmaEditField
-            app.ROIprominencesigmaEditField = uieditfield(app.ROIDetectionPanel, 'numeric');
-            app.ROIprominencesigmaEditField.Position = [417 32 24 22];
-            app.ROIprominencesigmaEditField.Value = 2;
+            app.ROIDetectionPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'ROI Detection', 'Position', [201 341 453 121]);
+            app.ROISizeLabel = uilabel(app.ROIDetectionPanel, 'HorizontalAlignment', 'right', 'Position', [10 69 129 22], 'Text', 'Expected ROI size (px)');
+            app.ROISizeEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [154 69 24 22], 'Value', app.Opt.RoiSize);
+            app.ROISigmaLabel = uilabel(app.ROIDetectionPanel, 'Position', [274 70 124 22], 'Text', 'Gaussian window size');
+            app.ROISigmaEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [413 70 24 22], 'Value', app.Opt.RoiSigma);
+            app.ProminenceROIsDropDownLabel = uilabel(app.ROIDetectionPanel, 'Position', [14 32 128 22], 'Text', 'Prominence estimation');
+            app.ProminenceROIsDropDown = uidropdown(app.ROIDetectionPanel, 'Items', {'Standard Deviation', 'MAD'}, 'Position', [157 32 100 22], 'Value', app.Opt.RoiProminence);
+            app.ProminenceROISigmaLabel = uilabel(app.ROIDetectionPanel, 'Position', [274 32 128 22], 'Text', 'ROI prominence sigma');
+            app.ProminenceROISigmaEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [417 32 24 22], 'Value', app.Opt.RoiProminenceSigma);
 
             % Create PeakDetectionPanel
-            app.PeakDetectionPanel = uipanel(app.DetectionoptionsPanel);
-            app.PeakDetectionPanel.Title = 'Peak Detection';
-            app.PeakDetectionPanel.Position = [201 162 453 159];
+            app.PeakDetectionPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Peak Detection', 'Position', [201 162 453 159]);
+            app.PeakThresholdMethodDropDownLabel = uilabel(app.PeakDetectionPanel, 'HorizontalAlignment', 'right', 'Position', [10 111 102 22], 'Text', 'Threshold method');
+            app.PeakThresholdMethodDropDown = uidropdown(app.PeakDetectionPanel, 'Items', {'MAD', 'Rolling StDev'}, 'Position', [127 111 100 22], 'Value', app.Opt.PeakThreshold);
+            app.PeakSigmaLabel = uilabel(app.PeakDetectionPanel, 'Position', [270 111 94 22], 'Text', 'Threshold sigma');
+            app.PeakSigmaEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [413 111 24 22], 'Value', app.Opt.PeakThrSigma);
+            app.PeakMinProminenceLabel = uilabel(app.PeakDetectionPanel, 'Position', [14 79 124 22], 'Text', 'Minumum prominence');
+            app.PeakMinProminenceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [157 79 24 22], 'Value', app.Opt.PeakMinProm);
+            app.PeakMinDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [271 79 107 22], 'Text', 'Minumum Duration');
+            app.PeakMinDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [414 79 24 22], 'Value', app.Opt.PeakMinDuration);
+            app.MinDistanceLabel = uilabel(app.PeakDetectionPanel, 'Position', [15 41 108 22], 'Text', 'Minumum Distance');
+            app.PeakMinDistanceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [158 41 24 22], 'Value', app.Opt.PeakMinDistance);
+            app.MaxDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [270 41 106 22], 'Text', 'Maximum Duration');
+            app.PeakMaxDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [413 41 24 22], 'Value', app.Opt.PeakMaxDuration);
+            
+            % Create PeakDetectionPanel
+            app.DetrendOptionsPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Detrend options', 'Position', [12 48 176 140]);
+            app.MethodDropDownLabel = uilabel(app.DetrendOptionsPanel, 'Position', [10 88 56 22], 'Text', 'Method');
+            app.MethodDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'None', 'Moving median', 'Erosion', 'Polynomial'}, 'Position', [80 88 87 22], 'Value', app.Opt.Detrending);
+            app.WindowSizeLabel = uilabel(app.DetrendOptionsPanel, 'Position', [8 53 73 22], 'Text', 'Window size');
+            app.WindowSizeEdit = uieditfield(app.DetrendOptionsPanel, 'numeric', 'Position', [122 53 43 22], 'Value', app.Opt.DetrendSize);
+            app.VisualizeDropDownLabel = uilabel(app.DetrendOptionsPanel, 'Position', [8 19 56 22], 'Text', 'Visualize');
+            app.VisualizeDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'Raw', 'Gradient', 'Smooth'}, 'Position', [78 19 87 22], 'Value', app.Opt.DetectTrace);
 
-            % Create ThresholdmethodDropDownLabel
-            app.ThresholdmethodDropDownLabel = uilabel(app.PeakDetectionPanel);
-            app.ThresholdmethodDropDownLabel.HorizontalAlignment = 'right';
-            app.ThresholdmethodDropDownLabel.Position = [10 111 102 22];
-            app.ThresholdmethodDropDownLabel.Text = 'Threshold method';
-
-            % Create ThresholdmethodDropDown
-            app.ThresholdmethodDropDown = uidropdown(app.PeakDetectionPanel);
-            app.ThresholdmethodDropDown.Items = {'MAD', 'Rolling StDev'};
-            app.ThresholdmethodDropDown.Position = [127 111 100 22];
-            app.ThresholdmethodDropDown.Value = 'MAD';
-
-            % Create ThresholdsigmaEditFieldLabel
-            app.ThresholdsigmaEditFieldLabel = uilabel(app.PeakDetectionPanel);
-            app.ThresholdsigmaEditFieldLabel.Position = [270 111 94 22];
-            app.ThresholdsigmaEditFieldLabel.Text = 'Threshold sigma';
-
-            % Create ThresholdsigmaEditField
-            app.ThresholdsigmaEditField = uieditfield(app.PeakDetectionPanel, 'numeric');
-            app.ThresholdsigmaEditField.Position = [413 111 24 22];
-            app.ThresholdsigmaEditField.Value = 2;
-
-            % Create MinumumprominenceEditFieldLabel
-            app.MinumumprominenceEditFieldLabel = uilabel(app.PeakDetectionPanel);
-            app.MinumumprominenceEditFieldLabel.Position = [14 79 124 22];
-            app.MinumumprominenceEditFieldLabel.Text = 'Minumum prominence';
-
-            % Create MinumumprominenceEditField
-            app.MinumumprominenceEditField = uieditfield(app.PeakDetectionPanel, 'numeric');
-            app.MinumumprominenceEditField.Position = [157 79 24 22];
-            app.MinumumprominenceEditField.Value = 2;
-
-            % Create MinumumDurationEditFieldLabel
-            app.MinumumDurationEditFieldLabel = uilabel(app.PeakDetectionPanel);
-            app.MinumumDurationEditFieldLabel.Position = [271 79 107 22];
-            app.MinumumDurationEditFieldLabel.Text = 'Minumum Duration';
-
-            % Create MinumumDurationEditField
-            app.MinumumDurationEditField = uieditfield(app.PeakDetectionPanel, 'numeric');
-            app.MinumumDurationEditField.Position = [414 79 24 22];
-            app.MinumumDurationEditField.Value = 2;
-
-            % Create MinumumDistanceEditFieldLabel
-            app.MinumumDistanceEditFieldLabel = uilabel(app.PeakDetectionPanel);
-            app.MinumumDistanceEditFieldLabel.Position = [15 41 108 22];
-            app.MinumumDistanceEditFieldLabel.Text = 'Minumum Distance';
-
-            % Create MinumumDistanceEditField
-            app.MinumumDistanceEditField = uieditfield(app.PeakDetectionPanel, 'numeric');
-            app.MinumumDistanceEditField.Position = [158 41 24 22];
-            app.MinumumDistanceEditField.Value = 2;
-
-            % Create MaximumDurationEditFieldLabel
-            app.MaximumDurationEditFieldLabel = uilabel(app.PeakDetectionPanel);
-            app.MaximumDurationEditFieldLabel.Position = [270 41 106 22];
-            app.MaximumDurationEditFieldLabel.Text = 'Maximum Duration';
-
-            % Create MaximumDurationEditField
-            app.MaximumDurationEditField = uieditfield(app.PeakDetectionPanel, 'numeric');
-            app.MaximumDurationEditField.Position = [413 41 24 22];
-            app.MaximumDurationEditField.Value = 2;
-
-            % Create DetrendoptionsPanel
-            app.DetrendoptionsPanel = uipanel(app.DetectionoptionsPanel);
-            app.DetrendoptionsPanel.Title = 'Detrend options';
-            app.DetrendoptionsPanel.Position = [12 48 176 140];
-
-            % Create MethodDropDownLabel
-            app.MethodDropDownLabel = uilabel(app.DetrendoptionsPanel);
-            app.MethodDropDownLabel.Position = [10 88 56 22];
-            app.MethodDropDownLabel.Text = 'Method';
-
-            % Create MethodDropDown
-            app.MethodDropDown = uidropdown(app.DetrendoptionsPanel);
-            app.MethodDropDown.Items = {'None', 'Moving median', 'Erosion', 'Polynomial'};
-            app.MethodDropDown.Position = [80 88 87 22];
-            app.MethodDropDown.Value = 'None';
-
-            % Create WindowsizeEditFieldLabel
-            app.WindowsizeEditFieldLabel = uilabel(app.DetrendoptionsPanel);
-            app.WindowsizeEditFieldLabel.Position = [8 53 73 22];
-            app.WindowsizeEditFieldLabel.Text = 'Window size';
-
-            % Create WindowsizeEditField
-            app.WindowsizeEditField = uieditfield(app.DetrendoptionsPanel, 'numeric');
-            app.WindowsizeEditField.Position = [122 53 43 22];
-            app.WindowsizeEditField.Value = 100;
-
-            % Create VisualizeDropDownLabel
-            app.VisualizeDropDownLabel = uilabel(app.DetrendoptionsPanel);
-            app.VisualizeDropDownLabel.Position = [8 19 56 22];
-            app.VisualizeDropDownLabel.Text = 'Visualize';
-
-            % Create VisualizeDropDown
-            app.VisualizeDropDown = uidropdown(app.DetrendoptionsPanel);
-            app.VisualizeDropDown.Items = {'Raw', 'Gradient', 'Smooth'};
-            app.VisualizeDropDown.Position = [78 19 87 22];
-            app.VisualizeDropDown.Value = 'Raw';
-
-            % Create StimulationprotocolPanel
-            app.StimulationprotocolPanel = uipanel(app.DetectionoptionsPanel);
-            app.StimulationprotocolPanel.Title = 'Stimulation protocol';
-            app.StimulationprotocolPanel.Position = [202 5 452 144];
-
-            % Create MergedrecordingsCheckBox
-            app.MergedrecordingsCheckBox = uicheckbox(app.StimulationprotocolPanel);
-            app.MergedrecordingsCheckBox.Text = 'Merged recordings';
-            app.MergedrecordingsCheckBox.Position = [179 59 144 22];
-
-            % Create BaselinetimesEditFieldLabel
-            app.BaselinetimesEditFieldLabel = uilabel(app.StimulationprotocolPanel);
-            app.BaselinetimesEditFieldLabel.Position = [184 93 95 22];
-            app.BaselinetimesEditFieldLabel.Text = 'Baseline time (s)';
-
-            % Create BaselinetimesEditField
-            app.BaselinetimesEditField = uieditfield(app.StimulationprotocolPanel, 'numeric');
-            app.BaselinetimesEditField.Position = [278 93 45 22];
-            app.BaselinetimesEditField.Value = 1;
-
-            % Create NumberofAPEditFieldLabel
-            app.NumberofAPEditFieldLabel = uilabel(app.StimulationprotocolPanel);
-            app.NumberofAPEditFieldLabel.Position = [9 26 81 22];
-            app.NumberofAPEditFieldLabel.Text = 'Number of AP';
-
-            % Create NumberofAPEditField
-            app.NumberofAPEditField = uieditfield(app.StimulationprotocolPanel, 'numeric');
-            app.NumberofAPEditField.Position = [103 26 45 22];
-            app.NumberofAPEditField.Value = 25;
-
-            % Create APfrequencyEditFieldLabel
-            app.APfrequencyEditFieldLabel = uilabel(app.StimulationprotocolPanel);
-            app.APfrequencyEditFieldLabel.Position = [184 26 78 22];
-            app.APfrequencyEditFieldLabel.Text = 'AP frequency';
-
-            % Create APfrequencyEditField
-            app.APfrequencyEditField = uieditfield(app.StimulationprotocolPanel, 'numeric');
-            app.APfrequencyEditField.Position = [278 26 45 22];
-            app.APfrequencyEditField.Value = 5;
-
-            % Create NumberoftrainsEditFieldLabel
-            app.NumberoftrainsEditFieldLabel = uilabel(app.StimulationprotocolPanel);
-            app.NumberoftrainsEditFieldLabel.Position = [8 59 94 22];
-            app.NumberoftrainsEditFieldLabel.Text = 'Number of trains';
-
-            % Create NumberoftrainsEditField
-            app.NumberoftrainsEditField = uieditfield(app.StimulationprotocolPanel, 'numeric');
-            app.NumberoftrainsEditField.Position = [102 59 45 22];
-            app.NumberoftrainsEditField.Value = 1;
-
-            % Create IdentifierEditField_3Label
-            app.IdentifierEditField_3Label = uilabel(app.StimulationprotocolPanel);
-            app.IdentifierEditField_3Label.Position = [8 93 52 22];
-            app.IdentifierEditField_3Label.Text = 'Identifier';
-
-            % Create IdentifierEditField_3
-            app.IdentifierEditField_3 = uieditfield(app.StimulationprotocolPanel, 'text');
-            app.IdentifierEditField_3.Position = [102 93 45 22];
-            app.IdentifierEditField_3.Value = '5Hz';
-
-            % Create ImportROIsButton
-            app.ImportROIsButton = uibutton(app.MainTab, 'push');
-            app.ImportROIsButton.Position = [1038 543 100 22];
-            app.ImportROIsButton.Text = 'Import ROIs';
-
-            % Create DetectROIsButton
-            app.DetectROIsButton = uibutton(app.MainTab, 'push');
-            app.DetectROIsButton.Position = [1038 514 100 22];
-            app.DetectROIsButton.Text = 'Detect ROIs';
-
-            % Create DetectPeaksButton
-            app.DetectPeaksButton = uibutton(app.MainTab, 'push');
-            app.DetectPeaksButton.Position = [1038 485 100 22];
-            app.DetectPeaksButton.Text = 'Detect Peaks';
-
-            % Create Table
-            app.TableTab = uitab(app.TabGroup);
-            app.TableTab.Title = 'Table';
-
+            % Create StimulationProtocolPanel
+            app.StimulationProtocolPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Stimulation protocol', 'Position', [202 5 452 144]);
+            app.MergedRecordingsCheckBox = uicheckbox(app.StimulationProtocolPanel, 'Text', 'Merged recordings', 'Position', [179 59 144 22]);
+            app.BaselineSecLabel = uilabel(app.StimulationProtocolPanel, 'Position', [184 93 95 22], 'Text', 'Baseline time (s)');
+            app.BaselineSecEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [278 93 45 22], 'Value', 1);
+            app.APNumLabel = uilabel(app.StimulationProtocolPanel, 'Position', [9 26 81 22], 'Text', 'Number of AP');
+            app.APNumEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [103 26 45 22], 'Value', 25);
+            app.APFreqLabel = uilabel(app.StimulationProtocolPanel, 'Position', [184 26 78 22], 'Text', 'AP frequency');
+            app.APFreqEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [278 26 45 22], 'Value', 5);
+            app.TrainsNumLabel = uilabel(app.StimulationProtocolPanel, 'Position', [8 59 94 22], 'Text', 'Number of trains');
+            app.TrainsNumEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [102 59 45 22], 'Value', 1);
+            app.TrainsIDsLabel = uilabel(app.StimulationProtocolPanel, 'Position', [8 93 52 22], 'Text', 'Identifier');
+            app.TrainsIDsEdit = uieditfield(app.StimulationProtocolPanel, 'text', 'Position', [102 93 45 22], 'Value', '5Hz');
+            
             % Create UITable
-            app.UITable = uitable(app.TableTab);
-            app.UITable.ColumnName = {'Column 1'; 'Column 2'; 'Column 3'; 'Column 4'};
-            app.UITable.RowName = {};
-            app.UITable.Position = [25 12 381 888];
+            app.UITable = uitable(app.TableTab, 'ColumnName', {'Column 1'; 'Column 2'; 'Column 3'; 'Column 4'}, 'RowName', {}, 'Position', [25 12 381 888]);
 
             % Create UIAxes3
             app.UIAxes3 = uiaxes(app.TableTab);
@@ -591,18 +427,99 @@ classdef GluTA < matlab.apps.AppBase
             movegui(app.UIFigure, 'center');
             app.UIFigure.Visible = 'on';
         end
+        
+        function startSettings(app)
+            s = settings;
+            if ~hasGroup(s, 'GluTA')
+                % save the settings
+                addGroup(s, 'GluTA');
+                addSetting(s.GluTA, 'LastPath', 'PersonalValue', pwd);
+                addSetting(s.GluTA, 'ImgFrequency', 'PersonalValue', 50);
+                addSetting(s.GluTA, 'MultiRecording', 'PersonalValue', true);
+                addSetting(s.GluTA, 'RecIDs', 'PersonalValue', 'fov');
+                addSetting(s.GluTA, 'MultiStimulation', 'PersonalValue', true);
+                addSetting(s.GluTA, 'StimIDs', 'PersonalValue', 'Hz');
+                addSetting(s.GluTA, 'StimNum', 'PersonalValue', 4);
+                addSetting(s.GluTA, 'RoiSize', 'PersonalValue', 5);
+                addSetting(s.GluTA, 'RoiSigma', 'PersonalValue', 11);
+                addSetting(s.GluTA, 'RoiProminence', 'PersonalValue', 'Standard Deviation');
+                addSetting(s.GluTA, 'RoiProminenceSigma', 'PersonalValue', 2);
+                addSetting(s.GluTA, 'PeakThreshold', 'PersonalValue', 'MAD');
+                addSetting(s.GluTA, 'PeakThrSigma', 'PersonalValue', 2);
+                addSetting(s.GluTA, 'PeakMinProm', 'PersonalValue', 1);
+                addSetting(s.GluTA, 'PeakMinDistance', 'PersonalValue', 1);
+                addSetting(s.GluTA, 'PeakMinDuration', 'PersonalValue', 2);
+                addSetting(s.GluTA, 'PeakMaxDuration', 'PersonalValue', 5);
+                addSetting(s.GluTA, 'Detrending', 'PersonalValue', 'None');
+                addSetting(s.GluTA, 'DetrendSize', 'PersonalValue', 100);
+                addSetting(s.GluTA, 'DetectTrace', 'PersonalValue', 'Raw');
+            end
+            app.Opt.LastPath = s.GluTA.LastPath.ActiveValue;
+            app.Opt.ImgFrequency = s.GluTA.ImgFrequency.ActiveValue;
+            app.Opt.MultiRecording = s.GluTA.MultiRecording.ActiveValue;
+            app.Opt.RecIDs = s.GluTA.RecIDs.ActiveValue;
+            app.Opt.MultiStimulation = s.GluTA.MultiStimulation.ActiveValue;
+            app.Opt.StimIDs = s.GluTA.StimIDs.ActiveValue;
+            app.Opt.StimNum = s.GluTA.StimNum.ActiveValue;
+            app.Opt.RoiSize = s.GluTA.RoiSize.ActiveValue;
+            app.Opt.RoiSigma = s.GluTA.RoiSigma.ActiveValue;
+            app.Opt.RoiProminence = s.GluTA.RoiProminence.ActiveValue;
+            app.Opt.RoiProminenceSigma = s.GluTA.RoiProminenceSigma.ActiveValue;
+            app.Opt.PeakThreshold = s.GluTA.PeakThreshold.ActiveValue;
+            app.Opt.PeakThrSigma = s.GluTA.PeakThrSigma.ActiveValue;
+            app.Opt.PeakMinProm = s.GluTA.PeakMinProm.ActiveValue;
+            app.Opt.PeakMinDistance = s.GluTA.PeakMinDistance.ActiveValue;
+            app.Opt.PeakMinDuration = s.GluTA.PeakMinDuration.ActiveValue;
+            app.Opt.PeakMaxDuration = s.GluTA.PeakMaxDuration.ActiveValue;
+            app.Opt.Detrending = s.GluTA.Detrending.ActiveValue;
+            app.Opt.DetrendSize = s.GluTA.DetrendSize.ActiveValue;
+            app.Opt.DetectTrace = s.GluTA.DetectTrace.ActiveValue;
+        end
+        
+        function saveSettings(app)
+            % Before closing save the settings
+            s = settings;
+            s.GluTA.LastPath.PersonalValue = app.Opt.LastPath;
+            s.GluTA.ImgFrequency.PersonalValue = app.Opt.ImgFrequency;
+            s.GluTA.MultiRecording.PersonalValue = app.Opt.MultiRecording;
+            s.GluTA.RecIDs.PersonalValue = app.Opt.RecIDs;
+            s.GluTA.MultiStimulation.PersonalValue = app.Opt.MultiStimulation;
+            s.GluTA.StimIDs.PersonalValue = app.Opt.StimIDs;
+            s.GluTA.StimNum.PersonalValue = app.Opt.StimNum;
+            s.GluTA.RoiSize.PersonalValue = app.Opt.RoiSize;
+            s.GluTA.RoiSigma.PersonalValue = app.Opt.RoiSigma;
+            s.GluTA.RoiProminence.PersonalValue = app.Opt.RoiProminence;
+            s.GluTA.RoiProminenceSigma.PersonalValue = app.Opt.RoiProminenceSigma;
+            s.GluTA.PeakThreshold.PersonalValue = app.Opt.PeakThreshold;
+            s.GluTA.PeakThrSigma.PersonalValue = app.Opt.PeakThrSigma;
+            s.GluTA.PeakMinProm.PersonalValue = app.Opt.PeakMinProm;
+            s.GluTA.PeakMinDistance.PersonalValue = app.Opt.PeakMinDistance;
+            s.GluTA.PeakMinDuration.PersonalValue = app.Opt.PeakMinDuration;
+            s.GluTA.PeakMaxDuration.PersonalValue = app.Opt.PeakMaxDuration;
+            s.GluTA.Detrending.PersonalValue = app.Opt.Detrending;
+            s.GluTA.DetrendSize.PersonalValue = app.Opt.DetrendSize;
+            s.GluTA.DetectTrace.PersonalValue = app.Opt.DetectTrace;
+        end
+        
     end
     
     % App creation and deletion
     methods (Access = public)
         function app = GluTA
+            startSettings(app)
             createComponents(app)
-            
+            togglePointer(app)
             % Register the app with App Designer
-            registerApp(app, app.UIFigure)
+            %registerApp(app, app.UIFigure);
+            togglePointer(app);
+            % Do not return an element
+            if nargout == 0
+                clear app
+            end
         end
         
-         function delete(app)
+        function delete(app)
+            saveSettings(app)
             delete(app.UIFigure);
         end
     end
