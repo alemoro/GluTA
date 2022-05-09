@@ -34,8 +34,9 @@ classdef GluTA < matlab.apps.AppBase
         CellIDTab
         List_CellID
         RecIDTab
-        ListRec_ID
+        List_RecID
         ShowROIsButton
+        MeasureROIsButton
         DetectEventButtonGroup
         AllFOVsButton
         CurrentListButton
@@ -106,7 +107,7 @@ classdef GluTA < matlab.apps.AppBase
     
     % Housekeeping properties
     properties (Access = private)
-        
+        patchMask % store the ROIs drawing
     end
     
     % User properties
@@ -124,6 +125,7 @@ classdef GluTA < matlab.apps.AppBase
             % First locate the folder with the data
             imgPath = uigetdir(app.Opt.LastPath, 'Select Image folder');
             togglePointer(app)
+            figure(app.UIFigure);
             try
                 if imgPath ~= 0
                     % Store the last path
@@ -139,8 +141,8 @@ classdef GluTA < matlab.apps.AppBase
                     hWait = waitbar(0, 'Loading images data');
                     imgFltr = contains({imgFiles.name}, app.Opt.StimIDs) | contains({imgFiles.name}, app.Opt.RecIDs);
                     nFiles = sum(imgFltr);
-                    tempT = cell(nFiles+1, 9);
-                    tempT(1,:) = {'Filename', 'CellID', 'Week', 'BatchID', 'ConditionID', 'CoverslipID', 'RecID', 'StimID', 'Fs'};
+                    tempT = cell(nFiles+1, 10);
+                    tempT(1,:) = {'Filename', 'CellID', 'Week', 'BatchID', 'ConditionID', 'CoverslipID', 'RecID', 'StimID', 'ExperimentID', 'Fs'};
                     % Get the name info
                     nameParts = regexp({imgFiles.name}, '_', 'split')';
                     nameParts = nameParts(imgFltr);
@@ -153,13 +155,70 @@ classdef GluTA < matlab.apps.AppBase
                         tempT{f+1,5} = nameParts{f}{2};
                         tempT{f+1,6} = nameParts{f}{4};
                         tempT{f+1,7} = nameParts{f}{5};
-                        tempT{f+1,8} = nameParts{f}{6};
+                        tempT{f+1,8} = regexprep(nameParts{f}{6}, '.tif', '');
+                        % Get the experiment ID (batchID + coverslipID + FOV)
+                        tempT{f+1,9} = [nameParts{f}{3} '_' nameParts{f}{4} '_' nameParts{f}{5}];
                         % Try to get info on the actual timeStamp but not now
-                        tempT{f+1,8} = app.Opt.ImgFrequency;
+                        tempT{f+1,10} = app.Opt.ImgFrequency;
                     end
                     app.imgT = cell2table(tempT(2:end,:), 'VariableNames', tempT(1,:));
+                    % Enable button selection
+                    app.ImportROIsButton.Enable = 'on';
+                    app.DetectROIsButton.Enable = 'on';
+                    app.ShowMovieButton.Enable = 'on';
+                    % Populate the CellID tab, as well as the RecID tab
+                    waitbar(0.5, hWait, 'Populate list of cells');
+                    populateCellID(app);
+                    waitbar(0.9, hWait, 'Populate list of recordings');
+                    populateRecID(app);
+                    % Show that we are done
+                    delete(hWait);
+                    togglePointer(app);
                 end
             catch ME
+                delete(hWait);
+                togglePointer(app);
+                disp(ME)
+                errordlg('Failed to load the data. Please check command window for details', 'Loading failed');
+            end
+        end
+        
+        function FileMenuSaveSelected(app, event)
+            % First save the settings
+            saveSettings(app)
+            % Then save the data
+            oldDir = cd(app.Opt.LastPath);
+            [fileName, filePath] = uiputfile('*.mat', 'Save network data');
+            savePath = fullfile(filePath, fileName);
+            figure(app.UIFigure);
+            imgT = app.imgT;
+            opt = app.Opt;
+            save(savePath, 'imgT', 'opt');
+            cd(oldDir)
+        end
+        
+        function FileMenuOpenSelected(app, event)
+            [fileName, filePath] = uigetfile(app.Opt.LastPath, 'Select Analysis File');
+            togglePointer(app)
+            figure(app.UIFigure);
+            try
+                % Save the path to the settings
+                app.Opt.LastPath = filePath;
+                tempFiles = load(fullfile(filePath, fileName));
+                app.Opt = tempFiles.opt;
+                app.imgT = tempFiles.imgT;
+                % Enable button selection
+                app.ImportROIsButton.Enable = 'on';
+                app.DetectROIsButton.Enable = 'on';
+                app.ShowMovieButton.Enable = 'on';
+                % Populate the CellID tab, as well as the RecID tab
+                populateCellID(app);
+                populateRecID(app);
+                togglePointer(app);
+            catch ME
+                togglePointer(app);
+                disp(ME)
+                errordlg('Failed to load the data. Please check command window for details', 'Loading failed');
             end
         end
         
@@ -209,6 +268,61 @@ classdef GluTA < matlab.apps.AppBase
             app.Opt.DetectTrace = 'Raw';
             updateOptions(app)
         end
+        
+        function List_RecID_changed(app, event)
+            % First get the filename
+            fileName = app.imgT.Filename{contains(app.imgT.Filename, app.List_RecID.Value)};
+            % Load the first frame and display it
+            imgFile = imread(fileName);
+            imgMin = min(imgFile, [], 'all');
+            imgMax = max(imgFile, [], 'all');
+            imgDisp = [imgMin imgMax] / 255;
+            imshow(imadjust(imgFile, [0 1]), 'Parent', app.UIAxesMovie);
+            app.UIAxesMovie.YLim = [0 size(imgFile,1)];
+            app.UIAxesMovie.XLim = [0 size(imgFile,2)];
+            set(app.UIAxesMovie, 'YDir', 'reverse');
+        end
+        
+        function ImportROIsButtonPressed(app)
+            roiPath = uigetdir(app.Opt.LastPath, 'Select ROI folder');
+            roiFiles = dir(fullfile(roiPath, '*.zip'));
+            togglePointer(app);
+            figure(app.UIFigure);
+            try
+                % Get the name info
+                nameList = regexprep({roiFiles.name}, '.zip', '');
+                nameParts = regexp(nameList, '_', 'split')';
+                nFiles = numel(nameList);
+                allRois = cell(size(app.imgT,1), 1);
+                hWait = waitbar(0, 'Importing ROI data');
+                for f = 1:nFiles
+                    waitbar(f/nFiles, hWait, sprintf('Loading ROIs data %0.2f%%', f/nFiles*100));
+                    % Match the ROI to the expetimentID
+                    expID = [nameParts{f}{4} '_' nameParts{f}{5} '_' nameParts{f}{6}];
+                    cellFltr = matches(app.imgT.ExperimentID, expID);
+                    % Extract the ROIs
+                    tempRoi = ReadImageJROI(fullfile({roiFiles(f).folder}, {roiFiles(f).name}));
+                    tempRoi = cellfun(@(x) x.vnRectBounds, tempRoi{:}, 'UniformOutput', false);
+                    % There might be ROIs that are outside the boundary of the image, fix them
+                    tempRoi = cellfun(@(x) min(450, x), tempRoi, 'UniformOutput', false); % need to be adjusted
+                    tempRoi = cellfun(@(x) max(1, x), tempRoi, 'UniformOutput', false); % need to be adjusted
+                    % Add the ROI to the right cells
+                    allRois(cellFltr) = {tempRoi};
+                end
+                app.imgT.RoiSet = allRois;
+                delete(hWait);
+                togglePointer(app)
+            catch ME
+                delete(hWait);
+                togglePointer(app);
+                disp(ME)
+                errordlg('Failed to import the RoiSet. Please check command window for details', 'Import ROIs failed');
+            end
+            app.ShowROIsButton.Enable = 'on';
+            app.ShowROIsButton.Value = 1;
+            app.MeasureROIsButton.Enable = 'on';
+            showROIs(app);
+        end
     end
     
     % Housekeeping methods
@@ -242,6 +356,111 @@ classdef GluTA < matlab.apps.AppBase
             app.MethodDropDown.Value = app.Opt.Detrending;
             app.WindowSizeEdit.Value = app.Opt.DetrendSize;
             app.VisualizeDropDown.Value = app.Opt.DetectTrace;
+        end
+        
+        function populateCellID(app)
+            % Get the list of unique cell IDs
+            cellIDs = unique(app.imgT.ExperimentID);
+            app.List_CellID.Items = cellIDs;
+            app.List_CellID.Enable = 'on';
+        end
+        
+        function populateRecID(app)
+            % For the selected cell get the different recording
+            cellFltr = matches(app.imgT.ExperimentID, app.List_CellID.Value);
+            app.List_RecID.Items = app.imgT.CellID(cellFltr);
+            app.List_RecID.Enable = 'on';
+            List_RecID_changed(app, []);
+            % Check if we need to show the ROIs
+            if numel(app.patchMask) > 0
+                delete(app.patchMask)
+            end
+            if app.ShowROIsButton.Value
+                showROIs(app);
+            end
+        end
+        
+        function showROIs(app)
+            if app.ShowROIsButton.Value
+                % Get the selected cell
+                cellFltr = matches(app.imgT.ExperimentID, app.List_CellID.Value);
+                roiSet = app.imgT.RoiSet{find(cellFltr,1)};
+                nRoi = numel(roiSet);
+                if nRoi == 0
+                    warndlg('This image does not have any ROIs');
+                    return
+                end
+                % If the are ROIs, show them
+                hold(app.UIAxesMovie, 'on')
+                p = gobjects(nRoi,1);
+                for r = 1:nRoi
+                    p(r) = patch(app.UIAxesMovie, 'Faces', [1 2 3 4], 'Vertices', [roiSet{r}([2 1]); roiSet{r}([2 3]); roiSet{r}([4 3]); roiSet{r}([4 1])], 'FaceColor', 'none', 'EdgeColor', [.0 .8 .8]);
+                end
+                app.patchMask = p;
+            else
+                delete(app.patchMask)
+            end
+        end
+        
+        function MeasureROIs(app)
+            % First get the list of cells where there are ROIs
+            cellFltr = cellfun(@(x) ~isempty(x), app.imgT.RoiSet);
+            % Create a cell array to contain the intensity values
+            rawData = cell(height(app.imgT), 1);
+            ff0Data = cell(height(app.imgT), 1);
+            detData = cell(height(app.imgT), 1);
+            hWait = waitbar(0, 'Measuring ROIs data');
+            for c = find(cellFltr)'
+                waitbar(c/numel(cellFltr), hWait, sprintf('Loading ROIs data %0.2f%%', c/numel(cellFltr)*100));
+                try
+                % Load the movie
+                movieData = double(loadMovie(app, c));
+                nFrames = size(movieData,3);
+                % Get the ROIs data
+                roiSet = app.imgT.RoiSet{c};
+                nRoi = numel(roiSet);
+                tempData = zeros(nFrames, nRoi);
+                for r = 1:nRoi
+                    tempData(:,r) = mean(movieData(roiSet{r}(1):roiSet{r}(3), roiSet{r}(2):roiSet{r}(4), :), [1 2]);
+                end
+                rawData{c} = tempData;
+                % Calculate the FF0 data
+                if contains(app.imgT.StimID{c}, app.Opt.StimIDs)
+                    % There is a baseline, use this to calculate the FF0
+                    baseInts = mean(tempData(1:20, :)); % I need to refine the protocols
+                else
+                    % There is no baseline (aka spontaneous recording). Detect the median intensity in 10 region of the recordings to calculate the deltaF/F0
+                    frameDividers = [1:round(nFrames / 10):nFrames, nFrames];
+                    minVals = zeros(10, nRoi);
+                    for idx = 1:10
+                        minVals(idx, :) = median(tempData(frameDividers(idx):frameDividers(idx+1), :));
+                    end
+                    baseInts = mean(minVals);
+                end
+                ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
+                % Get the detrended data
+                detData{c} = ff0Data{c};
+                catch ME
+                    disp(ME);
+                end
+            end
+            delete(hWait);
+            app.imgT.RawData = rawData;
+            app.imgT.FF0Data = ff0Data;
+            app.imgT.DetrendData = detData;
+        end
+        
+        function timelapse = loadMovie(app, cellID)
+            % Get the filename of the cellID
+            imgFile = app.imgT.Filename{cellID};
+            imgInfo = imfinfo(imgFile);
+            nFrames = length(imgInfo);
+            pxW = imgInfo(1).Width;
+            pxH = imgInfo(1).Height;
+            timelapse = zeros(pxW,pxH,nFrames, 'uint8');
+            parfor k=1:nFrames
+                timelapse(:,:,k) = imread(imgFile,k);
+            end
         end
     end
     
@@ -312,17 +531,23 @@ classdef GluTA < matlab.apps.AppBase
             
             % Create Movie Toggles
             app.ShowMovieButton = uibutton(app.MainTab, 'state', 'Text', 'Show Movie', 'Position', [36 878 100 22], 'Enable', 'off');
-            app.ShowROIsButton = uibutton(app.MainTab, 'state', 'Text', 'Show ROIs', 'Position', [153 878 100 22], 'Enable', 'off');
+            app.ShowROIsButton = uibutton(app.MainTab, 'state', 'Text', 'Show ROIs', 'Position', [153 878 100 22], 'Enable', 'off',...
+                'ValueChangedFcn', createCallbackFcn(app, @showROIs, false));
+            app.MeasureROIsButton = uibutton(app.MainTab, 'push', 'Text', 'Measure ROIs', 'Position', [270 878 100 22], 'Enable', 'off',...
+                'ButtonPushedFcn', createCallbackFcn(app, @MeasureROIs, false));
             
             % Create Tabs for List Recording
             app.TabListRecording = uitabgroup(app.MainTab, 'Position', [883 605 260 274]);
             app.CellIDTab = uitab(app.TabListRecording, 'Title', 'Cell ID');
-            app.List_CellID = uilistbox(app.CellIDTab, 'Position', [10 11 239 227], 'Items', {''}, 'Enable', 'off');
+            app.List_CellID = uilistbox(app.CellIDTab, 'Position', [10 11 239 227], 'Items', {''}, 'Enable', 'off',...
+                'ValueChangedFcn', createCallbackFcn(app, @populateRecID, false));
             app.RecIDTab = uitab(app.TabListRecording, 'Title', 'Rec ID');
-            app.ListRec_ID = uilistbox(app.RecIDTab, 'Position', [10 11 239 227], 'Items', {''}, 'Enable', 'off');
+            app.List_RecID = uilistbox(app.RecIDTab, 'Position', [10 11 239 227], 'Items', {''}, 'Enable', 'off',...
+                'ValueChangedFcn', createCallbackFcn(app, @List_RecID_changed, true));
 
             % Create ROIs Buttons
-            app.ImportROIsButton = uibutton(app.MainTab, 'push', 'Text', 'Import ROIs', 'Position', [1038 543 100 22], 'Enable', 'off');
+            app.ImportROIsButton = uibutton(app.MainTab, 'push', 'Text', 'Import ROIs', 'Position', [1038 543 100 22], 'Enable', 'off',...
+                'ButtonPushedFcn', createCallbackFcn(app, @ImportROIsButtonPressed, false));
             app.DetectROIsButton = uibutton(app.MainTab, 'push', 'Text', 'Detect ROIs', 'Position', [1038 514 100 22], 'Enable', 'off');
             
             % Create Detect Event Button Group
