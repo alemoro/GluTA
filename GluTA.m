@@ -18,8 +18,8 @@ classdef GluTA < matlab.apps.AppBase
         UIAxesMovie
         UIAxesPlot
         PlotTypeButtonGroup
-        AllAndMeanButton
-        SingleTracesButton
+        AllAndMeanRadio
+        SingleTracesRadio
         DetrendButton
         ExportTraceButton
         PrevButton
@@ -38,9 +38,9 @@ classdef GluTA < matlab.apps.AppBase
         ShowROIsButton
         MeasureROIsButton
         DetectEventButtonGroup
-        AllFOVsButton
-        CurrentListButton
-        SelectedFOVButton
+        AllFOVsRadio
+        CurrentListRadio
+        SelectedFOVRadio
         DetectionOptionsPanel
         SaveButton
         DefaultButton
@@ -108,15 +108,86 @@ classdef GluTA < matlab.apps.AppBase
     % Housekeeping properties
     properties (Access = private)
         patchMask % store the ROIs drawing
+        currCell % the raw number of the current selected cell
+        currSlice % if the movie is showed, keep in memore which slice we are looking at
+        curTime % a line for the current position on the plot
     end
     
     % User properties
     properties (Access = public)
         Opt % store the settings options
         imgT % store the actual data
+        movieData % store the movie data
     end
     % Interaction methods
     methods (Access = private)
+        function updatePlot(app)
+            cla(app.UIAxesPlot)
+            legend(app.UIAxesPlot, 'off');
+            % Filter the cells that needs to be plotted
+            tempData = app.imgT.DetrendData{app.currCell};
+            Fs = app.imgT.Fs(app.currCell);
+            time = (0:length(tempData)-1) / Fs;
+            % Add some checks if there is stimulation needed
+            % Add some check for the type of plot (mean or individual)
+            switch app.PlotTypeButtonGroup.SelectedObject.Text
+                case 'All and mean'
+                    hold(app.UIAxesPlot, 'on')
+                    hLeg(1) = plot(app.UIAxesPlot, time, tempData(:,1), 'Color', [.7 .7 .7]);
+                    plot(app.UIAxesPlot, time, tempData(:,2:end), 'Color', [.7 .7 .7]);
+                    hLeg(2) = plot(app.UIAxesPlot, time, mean(tempData,2), 'Color', 'r');
+                    legend(hLeg, {'All', 'Mean'}, 'Box', 'off');
+                case 'Single trace'
+                    hold(app.UIAxesPlot, 'on')
+                    synN = app.TextSynNumber.Value;
+                    plot(app.UIAxesPlot, time, tempData(:,synN), 'Color', 'k');
+            end
+        end
+        
+        function populateCellID(app)
+            % Get the list of unique cell IDs
+            cellIDs = unique(app.imgT.ExperimentID);
+            app.List_CellID.Items = cellIDs;
+            app.List_CellID.Enable = 'on';
+        end
+        
+        function populateRecID(app)
+            % For the selected cell get the different recording
+            cellFltr = matches(app.imgT.ExperimentID, app.List_CellID.Value);
+            stimIDs = app.imgT.StimID(cellFltr);
+            app.List_RecID.Items = [stimIDs(matches(stimIDs, 'Naive')); stimIDs(~matches(stimIDs, 'Naive'))];
+            app.List_RecID.Enable = 'on';
+            List_RecID_changed(app, []);
+            % Check if we need to show the ROIs
+            if numel(app.patchMask) > 0
+                delete(app.patchMask)
+            end
+            if app.ShowROIsButton.Value
+                showROIs(app);
+            end
+        end
+        
+        function prevButtonPressed(app)
+            nSyn = size(app.imgT.DetrendData{app.currCell}, 2);
+            currentSyn = app.TextSynNumber.Value;
+            if currentSyn-1 < 1
+                app.TextSynNumber.Value = nSyn;
+            else
+                app.TextSynNumber.Value = currentSyn-1;
+            end
+            updatePlot(app);
+        end
+        
+        function nextButtonPressed(app)
+            nSyn = size(app.imgT.DetrendData{app.currCell}, 2);
+            currentSyn = app.TextSynNumber.Value;
+            if currentSyn+1 > nSyn
+                app.TextSynNumber.Value = 1;
+            else
+                app.TextSynNumber.Value = currentSyn+1;
+            end
+            updatePlot(app);
+        end
     end
     
      % Callbacks methods
@@ -215,6 +286,27 @@ classdef GluTA < matlab.apps.AppBase
                 populateCellID(app);
                 populateRecID(app);
                 togglePointer(app);
+                % Check if the are ROIs (at least in the first image)
+                if any(strcmp(app.imgT.Properties.VariableNames, 'RoiSet'))
+                    app.ShowROIsButton.Enable = 'on';
+                    app.MeasureROIsButton.Enable = 'on';
+                    if ~isempty(app.imgT.RoiSet{1})
+                        showROIs(app);
+                    end
+                end
+                % Check if there is data that can be plotted
+                if any(strcmp(app.imgT.Properties.VariableNames, 'DetrendData'))
+                    app.AllFOVsRadio.Enable = 'on';
+                    app.CurrentListRadio.Enable = 'on';
+                    app.SelectedFOVRadio.Enable = 'on';
+                    app.AllAndMeanRadio.Enable = 'on';
+                    app.SingleTracesRadio.Enable = 'on';
+                    app.ExportTraceButton.Enable = 'on';
+                    app.DetrendButton.Enable = 'on';
+                    if ~isempty(app.imgT.DetrendData{1})
+                        updatePlot(app);
+                    end
+                end
             catch ME
                 togglePointer(app);
                 disp(ME)
@@ -270,8 +362,9 @@ classdef GluTA < matlab.apps.AppBase
         end
         
         function List_RecID_changed(app, event)
-            % First get the filename
-            fileName = app.imgT.Filename{contains(app.imgT.Filename, app.List_RecID.Value)};
+            % First get the cellID and the filename
+            app.currCell = find(matches(app.imgT.ExperimentID, app.List_CellID.Value) & matches(app.imgT.StimID, app.List_RecID.Value));
+            fileName = app.imgT.Filename{app.currCell};
             % Load the first frame and display it
             imgFile = imread(fileName);
             imgMin = min(imgFile, [], 'all');
@@ -281,6 +374,8 @@ classdef GluTA < matlab.apps.AppBase
             app.UIAxesMovie.YLim = [0 size(imgFile,1)];
             app.UIAxesMovie.XLim = [0 size(imgFile,2)];
             set(app.UIAxesMovie, 'YDir', 'reverse');
+            showROIs(app);
+            updatePlot(app);
         end
         
         function ImportROIsButtonPressed(app)
@@ -323,6 +418,80 @@ classdef GluTA < matlab.apps.AppBase
             app.MeasureROIsButton.Enable = 'on';
             showROIs(app);
         end
+        
+        function MeasureROIsButtonPressed(app)
+            % First get the list of cells where there are ROIs
+            cellFltr = cellfun(@(x) ~isempty(x), app.imgT.RoiSet);
+            % Create a cell array to contain the intensity values
+            rawData = cell(height(app.imgT), 1);
+            ff0Data = cell(height(app.imgT), 1);
+            detData = cell(height(app.imgT), 1);
+            hWait = waitbar(0, 'Measuring ROIs data');
+            for c = find(cellFltr)'
+                waitbar(c/numel(cellFltr), hWait, sprintf('Loading ROIs data %0.2f%%', c/numel(cellFltr)*100));
+                try
+                % Load the movie
+                currMovie = double(loadMovie(app, c, true));
+                nFrames = size(currMovie,3);
+                % Get the ROIs data
+                roiSet = app.imgT.RoiSet{c};
+                nRoi = numel(roiSet);
+                tempData = zeros(nFrames, nRoi);
+                for r = 1:nRoi
+                    tempData(:,r) = mean(currMovie(roiSet{r}(1):roiSet{r}(3), roiSet{r}(2):roiSet{r}(4), :), [1 2]);
+                end
+                rawData{c} = tempData;
+                % Calculate the FF0 data
+                if contains(app.imgT.StimID{c}, app.Opt.StimIDs)
+                    % There is a baseline, use this to calculate the FF0
+                    baseInts = mean(tempData(1:20, :)); % I need to refine the protocols
+                else
+                    % There is no baseline (aka spontaneous recording). Detect the median intensity in 10 region of the recordings to calculate the deltaF/F0
+                    frameDividers = [1:round(nFrames / 10):nFrames, nFrames];
+                    minVals = zeros(10, nRoi);
+                    for idx = 1:10
+                        minVals(idx, :) = median(tempData(frameDividers(idx):frameDividers(idx+1), :));
+                    end
+                    baseInts = mean(minVals);
+                end
+                ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
+                % Get the detrended data
+                detData{c} = ff0Data{c};
+                catch ME
+                    disp(ME);
+                end
+            end
+            delete(hWait);
+            app.imgT.RawData = rawData;
+            app.imgT.FF0Data = ff0Data;
+            app.imgT.DetrendData = detData;
+            updatePlot(app)
+        end
+        
+        function switchPlotType(app)
+            app.PrevButton.Enable = ~app.PrevButton.Enable;
+            app.NextButton.Enable = ~app.NextButton.Enable;
+            app.TextSynNumber.Enable = ~app.TextSynNumber.Enable;
+            app.FixYAxisButton.Enable = ~app.FixYAxisButton.Enable;
+            updatePlot(app);
+        end
+        
+        function SliderMovieMoved(app, event)
+            if app.SliderMovie.Visible
+                if nargin == 2 && isprop(event, 'VerticalScrollCount')
+                    sliceToShow = round(app.SliderMovie.Value + event.VerticalScrollCount);
+                    if sliceToShow < 1
+                        return
+                    end
+                else
+                    sliceToShow = round(event.Value);
+                end
+                app.SliderMovie.Value = sliceToShow;
+                Fs = app.imgT.Fs(app.currCell);
+                app.currSlice.CData = app.movieData(:,:,sliceToShow);
+                app.curTime.XData = ones(2,1)*sliceToShow/Fs - 1/Fs;
+            end
+        end
     end
     
     % Housekeeping methods
@@ -358,33 +527,10 @@ classdef GluTA < matlab.apps.AppBase
             app.VisualizeDropDown.Value = app.Opt.DetectTrace;
         end
         
-        function populateCellID(app)
-            % Get the list of unique cell IDs
-            cellIDs = unique(app.imgT.ExperimentID);
-            app.List_CellID.Items = cellIDs;
-            app.List_CellID.Enable = 'on';
-        end
-        
-        function populateRecID(app)
-            % For the selected cell get the different recording
-            cellFltr = matches(app.imgT.ExperimentID, app.List_CellID.Value);
-            app.List_RecID.Items = app.imgT.CellID(cellFltr);
-            app.List_RecID.Enable = 'on';
-            List_RecID_changed(app, []);
-            % Check if we need to show the ROIs
-            if numel(app.patchMask) > 0
-                delete(app.patchMask)
-            end
-            if app.ShowROIsButton.Value
-                showROIs(app);
-            end
-        end
-        
         function showROIs(app)
             if app.ShowROIsButton.Value
                 % Get the selected cell
-                cellFltr = matches(app.imgT.ExperimentID, app.List_CellID.Value);
-                roiSet = app.imgT.RoiSet{find(cellFltr,1)};
+                roiSet = app.imgT.RoiSet{app.currCell};
                 nRoi = numel(roiSet);
                 if nRoi == 0
                     warndlg('This image does not have any ROIs');
@@ -402,55 +548,7 @@ classdef GluTA < matlab.apps.AppBase
             end
         end
         
-        function MeasureROIs(app)
-            % First get the list of cells where there are ROIs
-            cellFltr = cellfun(@(x) ~isempty(x), app.imgT.RoiSet);
-            % Create a cell array to contain the intensity values
-            rawData = cell(height(app.imgT), 1);
-            ff0Data = cell(height(app.imgT), 1);
-            detData = cell(height(app.imgT), 1);
-            hWait = waitbar(0, 'Measuring ROIs data');
-            for c = find(cellFltr)'
-                waitbar(c/numel(cellFltr), hWait, sprintf('Loading ROIs data %0.2f%%', c/numel(cellFltr)*100));
-                try
-                % Load the movie
-                movieData = double(loadMovie(app, c));
-                nFrames = size(movieData,3);
-                % Get the ROIs data
-                roiSet = app.imgT.RoiSet{c};
-                nRoi = numel(roiSet);
-                tempData = zeros(nFrames, nRoi);
-                for r = 1:nRoi
-                    tempData(:,r) = mean(movieData(roiSet{r}(1):roiSet{r}(3), roiSet{r}(2):roiSet{r}(4), :), [1 2]);
-                end
-                rawData{c} = tempData;
-                % Calculate the FF0 data
-                if contains(app.imgT.StimID{c}, app.Opt.StimIDs)
-                    % There is a baseline, use this to calculate the FF0
-                    baseInts = mean(tempData(1:20, :)); % I need to refine the protocols
-                else
-                    % There is no baseline (aka spontaneous recording). Detect the median intensity in 10 region of the recordings to calculate the deltaF/F0
-                    frameDividers = [1:round(nFrames / 10):nFrames, nFrames];
-                    minVals = zeros(10, nRoi);
-                    for idx = 1:10
-                        minVals(idx, :) = median(tempData(frameDividers(idx):frameDividers(idx+1), :));
-                    end
-                    baseInts = mean(minVals);
-                end
-                ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
-                % Get the detrended data
-                detData{c} = ff0Data{c};
-                catch ME
-                    disp(ME);
-                end
-            end
-            delete(hWait);
-            app.imgT.RawData = rawData;
-            app.imgT.FF0Data = ff0Data;
-            app.imgT.DetrendData = detData;
-        end
-        
-        function timelapse = loadMovie(app, cellID)
+        function timelapse = loadMovie(app, cellID, useParallel)
             % Get the filename of the cellID
             imgFile = app.imgT.Filename{cellID};
             imgInfo = imfinfo(imgFile);
@@ -458,8 +556,46 @@ classdef GluTA < matlab.apps.AppBase
             pxW = imgInfo(1).Width;
             pxH = imgInfo(1).Height;
             timelapse = zeros(pxW,pxH,nFrames, 'uint8');
-            parfor k=1:nFrames
-                timelapse(:,:,k) = imread(imgFile,k);
+            if useParallel
+                parfor k=1:nFrames
+                    timelapse(:,:,k) = imread(imgFile,k);
+                end
+            else
+                hWait = waitbar(1/nFrames, 'Loading movie');
+                for k=1:nFrames
+                    waitbar(k/nFrames, hWait, 'Loading movie');
+                    timelapse(:,:,k) = imread(imgFile,k);
+                end
+                delete(hWait);
+            end
+        end
+        
+        function showMovie(app)
+            if app.ShowMovieButton.Value
+                app.movieData = loadMovie(app, app.currCell, false);
+                nImages = size(app.movieData, 3);
+                Fs = app.imgT.Fs(app.currCell);
+                app.SliderMovie.Visible = 'on';
+                app.SliderMovie.Value = 1;
+                app.SliderMovie.Limits = [1, nImages];
+                app.SliderMovie.MinorTicks = [];
+                app.SliderMovie.MajorTicks = linspace(1,nImages,20);
+                app.SliderMovie.MajorTickLabels = categorical(round(linspace(1,nImages,20) / Fs));
+                s = imshow(app.movieData(:,:,1), 'Parent', app.UIAxesMovie);
+                app.currSlice = s;
+                hold(app.UIAxesPlot, 'on');
+                hTime = plot(app.UIAxesPlot, zeros(2,1), app.UIAxesPlot.YLim, 'b');
+                hLeg = get(app.UIAxesPlot, 'Legend');
+                if ~isempty(hLeg)
+                    hLeg.String = {hLeg.String{1}, hLeg.String{2}};
+                end
+                app.curTime = hTime;
+            else
+                app.SliderMovie.Visible = 'off';
+                app.movieData = [];
+                app.currSlice = [];
+                app.curTime.Visible = 'off';
+                app.curTime = [];
             end
         end
     end
@@ -471,7 +607,7 @@ classdef GluTA < matlab.apps.AppBase
             app.UIFigure = uifigure('Units', 'pixels', 'Visible', 'off',...
                 'Position', [100 100 1895 942],...
                 'Name', 'GluTA: iGluSnFR Trace Analyzer', 'ToolBar', 'none', 'MenuBar', 'none',...
-                'NumberTitle', 'off', 'WindowScrollWheelFcn', @(~,event)SliderImageStackMoved(app, event),...
+                'NumberTitle', 'off', 'WindowScrollWheelFcn', @(~,event)SliderMovieMoved(app, event),...
                 'KeyPressFcn', @(~,event)keyPressed(app, event));
             
             % Create the menu bar: file options
@@ -498,13 +634,15 @@ classdef GluTA < matlab.apps.AppBase
             title(app.UIAxesMovie, ''); xlabel(app.UIAxesMovie, ''); ylabel(app.UIAxesMovie, '')
             app.UIAxesPlot = uiaxes(app.MainTab, 'Position', [870 12 990 327], 'Visible', 'on');
             title(app.UIAxesPlot, ''); xlabel(app.UIAxesPlot, 'Time (s)'); ylabel(app.UIAxesPlot, 'iGluSnFR (a.u.)')
-            app.SliderMovie = uislider(app.MainTab, 'Position', [36 44 806 3], 'Visible', 'off');
+            app.SliderMovie = uislider(app.MainTab, 'Position', [36 44 806 3], 'Visible', 'off',...
+                'ValueChangingFcn', createCallbackFcn(app, @SliderMovieMoved, true));
             
             % Create Plot Type Button Group
-            app.PlotTypeButtonGroup = uibuttongroup(app.MainTab, 'Title', 'Plot Type', 'Position', [885 381 118 73]);
-            app.AllAndMeanButton = uiradiobutton(app.PlotTypeButtonGroup, 'Text', 'All and mean', 'Position', [11 27 92 22],...
+            app.PlotTypeButtonGroup = uibuttongroup(app.MainTab, 'Title', 'Plot Type', 'Position', [885 381 118 73],...
+                'SelectionChangedFcn', createCallbackFcn(app, @switchPlotType, false));
+            app.AllAndMeanRadio = uiradiobutton(app.PlotTypeButtonGroup, 'Text', 'All and mean', 'Position', [11 27 92 22],...
                 'Value', true, 'Enable', 'off');
-            app.SingleTracesButton = uiradiobutton(app.PlotTypeButtonGroup, 'Text', 'Single trace', 'Position', [11 5 91 22],...
+            app.SingleTracesRadio = uiradiobutton(app.PlotTypeButtonGroup, 'Text', 'Single trace', 'Position', [11 5 91 22],...
                 'Enable', 'off');
             
             % Create DetrendButton, Export and Fix Y axis value
@@ -517,11 +655,11 @@ classdef GluTA < matlab.apps.AppBase
             
             % Create Synapse navigation panel
             app.PrevButton = uibutton(app.MainTab, 'push', 'Text', 'Prev', 'Position', [1089 338 36 22],...
-                'Enable', 'off');
-            app.TextSynNumber = uieditfield(app.MainTab, 'text', 'Position', [1128 338 48 22], 'Value', '1',...
-                'Enable', 'off');
+                'Enable', 'off', 'ButtonPushedFcn', createCallbackFcn(app, @prevButtonPressed, false));
+            app.TextSynNumber = uieditfield(app.MainTab, 'numeric', 'Position', [1128 338 48 22], 'Value', 1,...
+                'Enable', 'off', 'ValueChangedFcn', createCallbackFcn(app, @updatePlot, false));
             app.NextButton = uibutton(app.MainTab, 'push', 'Text', 'Next', 'Position', [1179 338 40 22],...
-                'Enable', 'off');
+                'Enable', 'off', 'ButtonPushedFcn', createCallbackFcn(app, @nextButtonPressed, false));
             
             % Create Manual peaks detection panel
             app.AddPeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Add peaks', 'Position', [1230 338 100 22],...
@@ -530,11 +668,12 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'off');
             
             % Create Movie Toggles
-            app.ShowMovieButton = uibutton(app.MainTab, 'state', 'Text', 'Show Movie', 'Position', [36 878 100 22], 'Enable', 'off');
+            app.ShowMovieButton = uibutton(app.MainTab, 'state', 'Text', 'Show Movie', 'Position', [36 878 100 22], 'Enable', 'off',...
+                'ValueChangedFcn', createCallbackFcn(app, @showMovie, false));
             app.ShowROIsButton = uibutton(app.MainTab, 'state', 'Text', 'Show ROIs', 'Position', [153 878 100 22], 'Enable', 'off',...
                 'ValueChangedFcn', createCallbackFcn(app, @showROIs, false));
             app.MeasureROIsButton = uibutton(app.MainTab, 'push', 'Text', 'Measure ROIs', 'Position', [270 878 100 22], 'Enable', 'off',...
-                'ButtonPushedFcn', createCallbackFcn(app, @MeasureROIs, false));
+                'ButtonPushedFcn', createCallbackFcn(app, @MeasureROIsButtonPressed, false));
             
             % Create Tabs for List Recording
             app.TabListRecording = uitabgroup(app.MainTab, 'Position', [883 605 260 274]);
@@ -552,12 +691,12 @@ classdef GluTA < matlab.apps.AppBase
             
             % Create Detect Event Button Group
             app.DetectEventButtonGroup = uibuttongroup(app.MainTab, 'Title', 'Detect events in:', 'Position', [884 483 123 106]);
-            app.AllFOVsButton = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'All FOVs', 'Position', [11 60 69 22], 'Enable', 'off');
-            app.CurrentListButton = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Current list', 'Position', [11 38 80 22], 'Enable', 'off');
-            app.SelectedFOVButton = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Selected FOV', 'Position', [11 16 97 22], 'Enable', 'off');
+            app.AllFOVsRadio = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'All FOVs', 'Position', [11 60 69 22], 'Enable', 'off');
+            app.CurrentListRadio = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Current list', 'Position', [11 38 80 22], 'Enable', 'off');
+            app.SelectedFOVRadio = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Selected FOV', 'Position', [11 16 97 22], 'Enable', 'off');
             app.DetectPeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Detect Peaks', 'Position', [1038 485 100 22], 'Enable', 'off');
             
-            % Create DetectionOptionsPanel
+            % Create Detection Options Panel
             app.DetectionOptionsPanel = uipanel(app.MainTab, 'Title', 'Detection Options', 'Position', [1188 381 672 498]);
             app.SaveButton = uibutton(app.DetectionOptionsPanel, 'push', 'Text', 'Save', 'Position', [18 10 75 22],...
                 'ButtonPushedFcn', createCallbackFcn(app, @SaveButtonPushed, true));
