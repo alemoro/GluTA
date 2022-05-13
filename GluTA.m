@@ -133,14 +133,23 @@ classdef GluTA < matlab.apps.AppBase
             switch app.PlotTypeButtonGroup.SelectedObject.Text
                 case 'All and mean'
                     hold(app.UIAxesPlot, 'on')
-                    hLeg(1) = plot(app.UIAxesPlot, time, tempData(:,1), 'Color', [.7 .7 .7]);
-                    plot(app.UIAxesPlot, time, tempData(:,2:end), 'Color', [.7 .7 .7]);
+                    hLeg(1) = plot(app.UIAxesPlot, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
+                    plot(app.UIAxesPlot, time, tempData(:,2:end), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
                     hLeg(2) = plot(app.UIAxesPlot, time, mean(tempData,2), 'Color', 'r');
                     legend(hLeg, {'All', 'Mean'}, 'Box', 'off');
                 case 'Single trace'
                     hold(app.UIAxesPlot, 'on')
                     synN = app.TextSynNumber.Value;
+                    synThr = calculateThreshold(app, tempData, synN);
                     plot(app.UIAxesPlot, time, tempData(:,synN), 'Color', 'k');
+                    plot(app.UIAxesPlot, time, synThr, '--', 'Color', [.5 .5 .5]);
+                    if any(strcmp(app.imgT.Properties.VariableNames, 'PeakLoc'))
+                        if ~isempty(app.imgT.PeakLoc{app.currCell})
+                            tempLocs = app.imgT.PeakLoc{app.currCell}{synN};
+                            tempInts = app.imgT.PeakInt{app.currCell}{synN};
+                            plot(app.UIAxesPlot, tempLocs / Fs, tempInts, 'or');
+                        end
+                    end
             end
         end
         
@@ -187,6 +196,41 @@ classdef GluTA < matlab.apps.AppBase
                 app.TextSynNumber.Value = currentSyn+1;
             end
             updatePlot(app);
+        end
+        
+        function DetectPeaksButtonPressed(app)
+            % Get the list of recordings for the detection
+             switch app.DetectEventButtonGroup.SelectedObject.Text
+                 case 'All FOVs'
+                     cellFltr = contains(app.imgT.StimID, 'Naive');
+                 case 'Current list'
+                     cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
+                 case 'Selected FOV'
+                     cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value) & contains(app.imgT.StimID, app.List_RecID.Value);
+             end
+             % Get the cells number
+             cellIDs = find(cellFltr);
+             nCell = numel(cellIDs);
+             peakLoc = cell(nCell,1);
+             peakInt = cell(nCell,1);
+             for cells = 1:nCell
+                 c = cellIDs(cells);
+                 tempData = app.imgT.DetrendData{c};
+                 Fs = app.imgT.Fs(c);
+                 nSyn = size(tempData,2);
+                 synLoc = cell(nSyn,1);
+                 synInt = cell(nSyn,1);
+                 for s = 1:nSyn
+                    tempThr = calculateThreshold(app, tempData, s);
+                    peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
+                    synInt{s} = peakInfo(:,1);
+                    synLoc{s} = peakInfo(:,2);
+                 end
+                 peakLoc{cells} = synLoc;
+                 peakInt{cells} = synInt;
+             end
+             app.imgT.PeakLoc(cellIDs) = peakLoc;
+             app.imgT.PeakInt(cellIDs) = peakInt;
         end
     end
     
@@ -303,6 +347,7 @@ classdef GluTA < matlab.apps.AppBase
                     app.SingleTracesRadio.Enable = 'on';
                     app.ExportTraceButton.Enable = 'on';
                     app.DetrendButton.Enable = 'on';
+                    app.DetectPeaksButton.Enable = 'on';
                     if ~isempty(app.imgT.DetrendData{1})
                         updatePlot(app);
                     end
@@ -375,7 +420,9 @@ classdef GluTA < matlab.apps.AppBase
             app.UIAxesMovie.XLim = [0 size(imgFile,2)];
             set(app.UIAxesMovie, 'YDir', 'reverse');
             showROIs(app);
-            updatePlot(app);
+            if any(strcmp(app.imgT.Properties.VariableNames, 'DetrendData'))
+                updatePlot(app);
+            end
         end
         
         function ImportROIsButtonPressed(app)
@@ -466,6 +513,15 @@ classdef GluTA < matlab.apps.AppBase
             app.imgT.FF0Data = ff0Data;
             app.imgT.DetrendData = detData;
             updatePlot(app)
+            app.AllFOVsRadio.Enable = 'on';
+            app.CurrentListRadio.Enable = 'on';
+            app.SelectedFOVRadio.Enable = 'on';
+            app.AllAndMeanRadio.Enable = 'on';
+            app.SingleTracesRadio.Enable = 'on';
+            app.ExportTraceButton.Enable = 'on';
+            app.DetrendButton.Enable = 'on';
+            app.DetectPeaksButton.Enable = 'on';
+            app.MeasureROIsButton.Enable = 'off';
         end
         
         function switchPlotType(app)
@@ -598,6 +654,35 @@ classdef GluTA < matlab.apps.AppBase
                 app.curTime = [];
             end
         end
+        
+        function tempThr = calculateThreshold(app, tempData, synN)
+            switch app.PeakThresholdMethodDropDown.Value
+                case 'MAD'
+                    tempThr = median(tempData(:,synN)) + mad(tempData(:,synN)) * app.PeakSigmaEdit.Value * (-1 / (sqrt(2) * erfcinv(3/2)));
+                    tempThr = repmat(tempThr, 1, length(tempData));
+                case 'Rolling StDev'
+                    winSize = app.PeakMaxDurationEdit.Value+app.PeakMinDistanceEdit.Value;
+                    tempMean = movmean(tempData(:,synN), winSize);
+                    tempStDev = std(diff(tempData(:,synN)));
+                    tempThr = tempMean + (app.PeakSigmaEdit.Value*tempStDev);
+            end
+        end
+        
+        function peakInfo = DetectPeaks(app, traceData, traceThr)
+            minProm = app.PeakMinProminenceEdit.Value;
+            minDura = app.PeakMinDurationEdit.Value;
+            maxDura = app.PeakMaxDurationEdit.Value;
+           [tempPeak, tempLocs] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura);
+            % Filter the event that are below the threshold
+            tempFltr = tempPeak > traceThr(tempLocs);
+            tempPeak = tempPeak(tempFltr);
+            tempLocs = tempLocs(tempFltr);
+            % Calculate the boundaries
+            %%%%%%%%%%%
+            %%%LATER%%%
+            %%%%%%%%%%%
+            peakInfo = [tempPeak, tempLocs];
+        end
     end
     
     % Create the UIFigure and components
@@ -694,7 +779,8 @@ classdef GluTA < matlab.apps.AppBase
             app.AllFOVsRadio = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'All FOVs', 'Position', [11 60 69 22], 'Enable', 'off');
             app.CurrentListRadio = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Current list', 'Position', [11 38 80 22], 'Enable', 'off');
             app.SelectedFOVRadio = uiradiobutton(app.DetectEventButtonGroup, 'Text', 'Selected FOV', 'Position', [11 16 97 22], 'Enable', 'off');
-            app.DetectPeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Detect Peaks', 'Position', [1038 485 100 22], 'Enable', 'off');
+            app.DetectPeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Detect Peaks', 'Position', [1038 485 100 22], 'Enable', 'off',...
+                'ButtonPushedFcn', createCallbackFcn(app, @DetectPeaksButtonPressed, false));
             
             % Create Detection Options Panel
             app.DetectionOptionsPanel = uipanel(app.MainTab, 'Title', 'Detection Options', 'Position', [1188 381 672 498]);
