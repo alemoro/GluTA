@@ -28,6 +28,7 @@ classdef GluTA < matlab.apps.AppBase
         AddPeaksButton
         DeletePeaksButton
         FixYAxisButton
+        ZoomInButton
         ShowMovieButton
         SliderMovie
         TabListRecording
@@ -101,7 +102,7 @@ classdef GluTA < matlab.apps.AppBase
         DetectPeaksButton
         TableTab
         UITable
-        UIAxes3
+        UIAxesRaster
         UIAxes4
     end
     
@@ -111,6 +112,7 @@ classdef GluTA < matlab.apps.AppBase
         currCell % the raw number of the current selected cell
         currSlice % if the movie is showed, keep in memore which slice we are looking at
         curTime % a line for the current position on the plot
+        yLim % Y axis limits for plotting single synapses
     end
     
     % User properties
@@ -119,6 +121,7 @@ classdef GluTA < matlab.apps.AppBase
         imgT % store the actual data
         movieData % store the movie data
     end
+    
     % Interaction methods
     methods (Access = private)
         function updatePlot(app)
@@ -147,8 +150,11 @@ classdef GluTA < matlab.apps.AppBase
                         if ~isempty(app.imgT.PeakLoc{app.currCell})
                             tempLocs = app.imgT.PeakLoc{app.currCell}{synN};
                             tempInts = app.imgT.PeakInt{app.currCell}{synN};
-                            plot(app.UIAxesPlot, tempLocs / Fs, tempInts, 'or');
+                            plot(app.UIAxesPlot, (tempLocs-1) / Fs, tempInts, 'or');
                         end
+                    end
+                    if app.FixYAxisButton.Value
+                        app.UIAxesPlot.YLim = app.yLim;
                     end
             end
         end
@@ -200,41 +206,122 @@ classdef GluTA < matlab.apps.AppBase
         
         function DetectPeaksButtonPressed(app)
             % Get the list of recordings for the detection
-             switch app.DetectEventButtonGroup.SelectedObject.Text
-                 case 'All FOVs'
-                     cellFltr = contains(app.imgT.StimID, 'Naive');
-                 case 'Current list'
-                     cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
-                 case 'Selected FOV'
-                     cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value) & contains(app.imgT.StimID, app.List_RecID.Value);
-             end
-             % Get the cells number
-             cellIDs = find(cellFltr);
-             nCell = numel(cellIDs);
-             peakLoc = cell(nCell,1);
-             peakInt = cell(nCell,1);
-             for cells = 1:nCell
-                 c = cellIDs(cells);
-                 tempData = app.imgT.DetrendData{c};
-                 Fs = app.imgT.Fs(c);
-                 nSyn = size(tempData,2);
-                 synLoc = cell(nSyn,1);
-                 synInt = cell(nSyn,1);
-                 for s = 1:nSyn
-                    tempThr = calculateThreshold(app, tempData, s);
-                    peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
-                    synInt{s} = peakInfo(:,1);
-                    synLoc{s} = peakInfo(:,2);
-                 end
-                 peakLoc{cells} = synLoc;
-                 peakInt{cells} = synInt;
-             end
-             app.imgT.PeakLoc(cellIDs) = peakLoc;
-             app.imgT.PeakInt(cellIDs) = peakInt;
+            switch app.DetectEventButtonGroup.SelectedObject.Text
+                case 'All FOVs'
+                    cellFltr = contains(app.imgT.StimID, 'Naive');
+                case 'Current list'
+                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
+                case 'Selected FOV'
+                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value) & contains(app.imgT.StimID, app.List_RecID.Value);
+            end
+            % Get the cells number
+            cellIDs = find(cellFltr);
+            nCell = numel(cellIDs);
+            peakLoc = cell(nCell,1);
+            peakInt = cell(nCell,1);
+            keepSyn = cell(nCell,1);
+            syncPeak = cell(nCell,1);
+            hWait = waitbar(0, 'Detecting peaks in data');
+            try
+                for cells = 1:nCell
+                    waitbar(cells/nCell, hWait, 'Detecting peaks in data');
+                    c = cellIDs(cells);
+                    tempData = app.imgT.DetrendData{c};
+                    Fs = app.imgT.Fs(c);
+                    nSyn = size(tempData,2);
+                    synLoc = cell(nSyn,1);
+                    synInt = cell(nSyn,1);
+                    for s = 1:nSyn
+                        tempThr = calculateThreshold(app, tempData, s);
+                        peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
+                        synInt{s} = peakInfo(:,1);
+                        synLoc{s} = peakInfo(:,2);
+                    end
+                    peakLoc{cells} = synLoc;
+                    peakInt{cells} = synInt;
+                    keepSyn{cells} = true(nSyn,1);
+                    % Calculate the synchronous peaks (based on the minimum distance)
+                    syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells});
+                end
+                app.imgT.PeakLoc(cellIDs) = peakLoc;
+                app.imgT.PeakInt(cellIDs) = peakInt;
+                app.imgT.KeepSyn(cellIDs) = keepSyn;
+                app.imgT.PeakSync(cellIDs) = syncPeak;
+                updatePlot(app);
+                delete(hWait);  
+                app.AddPeaksButton.Enable = 'on';
+                app.DeletePeaksButton.Enable = 'on';
+            catch ME
+                sprintf('Error in cell %s at synapse %d.', app.imgT.CellID{c}, s)
+                disp(ME)
+                delete(hWait);
+                errordlg('Failed to detect peaks. Please check command window for details', 'Detection failed');
+            end
+        end
+        
+        function addManualPeak(app, clickedPoint)
+            % Get the trace of the synapse
+            synN = app.TextSynNumber.Value;
+            tempData = app.imgT.DetrendData{app.currCell}(:,synN);
+            Fs = app.imgT.Fs(app.currCell);
+            % Get the info about the other spikes
+            allLoc = app.imgT.PeakLoc{app.currCell}{synN};
+            allInt = app.imgT.PeakInt{app.currCell}{synN};
+            % Define the searching area
+            searchLim = app.PeakMinDistanceEdit.Value + app.PeakMinDurationEdit.Value;
+            tempPoint = round(clickedPoint*Fs);
+            searchArea = tempPoint-searchLim:tempPoint+searchLim;
+            % Find the maxima of this area
+            [newInt, newLoc] = findpeaks(tempData(searchArea));
+            [newInt, newFltr] = max(newInt);
+            newLoc = newLoc(newFltr) + searchArea(1) -1;
+            % Check if there are other spikes in this area
+            if any(allLoc >= searchArea(1) & allLoc <= searchArea(end))
+                errordlg('Peak already detected in this area', 'No more peaks');
+            else
+                % Show the new point
+                plot(app.UIAxesPlot, (newLoc-1)/Fs, newInt, 'or');
+                % Add the new peak to the table
+                allLoc = [allLoc; newLoc];
+                allInt = [allInt; newInt];
+                [allLoc, sortIdx] = sort(allLoc);
+                allInt = allInt(sortIdx);
+                app.imgT.PeakLoc{app.currCell}{synN} = allLoc;
+                app.imgT.PeakInt{app.currCell}{synN} = allInt;
+            end
+        end
+        
+        function deleteManualPeak(app, clickedPoint)
+             % Get the trace of the synapse
+            synN = app.TextSynNumber.Value;
+            tempData = app.imgT.DetrendData{app.currCell}(:,synN);
+            Fs = app.imgT.Fs(app.currCell);
+            % Get the info about the other spikes
+            allLoc = app.imgT.PeakLoc{app.currCell}{synN};
+            allInt = app.imgT.PeakInt{app.currCell}{synN};
+            % Define the searching area
+            searchLim = app.PeakMinDistanceEdit.Value + app.PeakMaxDurationEdit.Value;
+            tempPoint = round(clickedPoint*Fs);
+            searchArea = tempPoint-searchLim:tempPoint+searchLim;
+            % Find the peak to delete
+            delPeak = find(allLoc > searchArea(1) & allLoc < searchArea(end));
+            while numel(delPeak) > 1
+                searchLim = searchLim / 2;
+                searchArea = tempPoint-searchLim:tempPoint+searchLim;
+                delPeak = find(allLoc > searchArea(1) & allLoc < searchArea(end));
+            end
+            if numel(delPeak) == 1
+                % Show that this peak is deleted
+                plot(app.UIAxesPlot, (allLoc(delPeak)-1)/Fs, allInt(delPeak), 'xr', 'LineWidth', 1.5);
+                allLoc(delPeak) = [];
+                allInt(delPeak) = [];
+            end
+            app.imgT.PeakLoc{app.currCell}{synN} = allLoc;
+            app.imgT.PeakInt{app.currCell}{synN} = allInt;
         end
     end
     
-     % Callbacks methods
+    % Callbacks methods
     methods (Access = private)
         function FileMenuImportSelected(app, event)
             % First locate the folder with the data
@@ -320,6 +407,7 @@ classdef GluTA < matlab.apps.AppBase
                 % Save the path to the settings
                 app.Opt.LastPath = filePath;
                 tempFiles = load(fullfile(filePath, fileName));
+                % First check if there is files at the current path
                 app.Opt = tempFiles.opt;
                 app.imgT = tempFiles.imgT;
                 % Enable button selection
@@ -352,6 +440,11 @@ classdef GluTA < matlab.apps.AppBase
                         updatePlot(app);
                     end
                 end
+                % Check if there are already spikes detected
+                if any(strcmp(app.imgT.Properties.VariableNames, 'PeakLoc'))
+                    app.AddPeaksButton.Enable = 'on';
+                    app.DeletePeaksButton.Enable = 'on';
+                end
             catch ME
                 togglePointer(app);
                 disp(ME)
@@ -380,6 +473,11 @@ classdef GluTA < matlab.apps.AppBase
             app.Opt.Detrending = app.MethodDropDown.Value;
             app.Opt.DetrendSize = app.WindowSizeEdit.Value;
             app.Opt.DetectTrace = app.VisualizeDropDown.Value;
+            app.SaveButton.Enable = 'off';
+        end
+        
+        function OptionChanged(app)
+            app.SaveButton.Enable = 'on';
         end
         
         function DefaultButtonPushed(app, event)
@@ -421,6 +519,7 @@ classdef GluTA < matlab.apps.AppBase
             set(app.UIAxesMovie, 'YDir', 'reverse');
             showROIs(app);
             if any(strcmp(app.imgT.Properties.VariableNames, 'DetrendData'))
+                fixYAxis(app);
                 updatePlot(app);
             end
         end
@@ -548,6 +647,50 @@ classdef GluTA < matlab.apps.AppBase
                 app.curTime.XData = ones(2,1)*sliceToShow/Fs - 1/Fs;
             end
         end
+        
+        function fixYAxis(app)
+            tempData = app.imgT.DetrendData{app.currCell};
+            yMin = min(tempData, [], 'all');
+            yMax = max(tempData, [], 'all');
+            app.yLim = [yMin, yMax];
+            if app.FixYAxisButton.Value
+                app.UIAxesPlot.YLim = app.yLim;
+            else
+                app.UIAxesPlot.YLimMode = 'auto';
+            end
+        end
+        
+        function ZoomIn(app)
+            if app.ZoomInButton.Value
+                oldXAxis = app.UIAxesPlot.XLim;
+                newXAxis = [oldXAxis(1), oldXAxis(end)/10];
+                app.UIAxesPlot.XLim = newXAxis;
+            else
+                app.UIAxesPlot.XLimMode = 'auto';
+            end
+        end
+        
+        function keyPressed(app, event)
+            switch event.Key
+                case "a" % Add new peaks
+                    app.AddPeaksButton.Value = true;
+                    crosshairCursor(app, event);
+                case "d" % Delete peaks
+                    app.DeletePeaksButton.Value = true;
+                    crosshairCursor(app, event);
+                case "rightarrow" % move to next cell
+                    if app.SingleTracesRadio.Value
+                        nextButtonPressed(app)
+                    end
+                case "leftarrow" % move to previous cell
+                    if app.SingleTracesRadio.Value
+                        prevButtonPressed(app)
+                    end
+                case "z"
+                    app.ZoomInButton.Value = ~app.ZoomInButton.Value;
+                    ZoomIn(app);
+            end
+        end
     end
     
     % Housekeeping methods
@@ -661,7 +804,7 @@ classdef GluTA < matlab.apps.AppBase
                     tempThr = median(tempData(:,synN)) + mad(tempData(:,synN)) * app.PeakSigmaEdit.Value * (-1 / (sqrt(2) * erfcinv(3/2)));
                     tempThr = repmat(tempThr, 1, length(tempData));
                 case 'Rolling StDev'
-                    winSize = app.PeakMaxDurationEdit.Value+app.PeakMinDistanceEdit.Value;
+                    winSize = app.PeakMaxDurationEdit.Value + app.PeakMinDistanceEdit.Value;
                     tempMean = movmean(tempData(:,synN), winSize);
                     tempStDev = std(diff(tempData(:,synN)));
                     tempThr = tempMean + (app.PeakSigmaEdit.Value*tempStDev);
@@ -672,7 +815,8 @@ classdef GluTA < matlab.apps.AppBase
             minProm = app.PeakMinProminenceEdit.Value;
             minDura = app.PeakMinDurationEdit.Value;
             maxDura = app.PeakMaxDurationEdit.Value;
-           [tempPeak, tempLocs] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura);
+            minDist = app.PeakMinDistanceEdit.Value;
+           [tempPeak, tempLocs] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura, 'MinPeakDistance', minDist);
             % Filter the event that are below the threshold
             tempFltr = tempPeak > traceThr(tempLocs);
             tempPeak = tempPeak(tempFltr);
@@ -682,6 +826,140 @@ classdef GluTA < matlab.apps.AppBase
             %%%LATER%%%
             %%%%%%%%%%%
             peakInfo = [tempPeak, tempLocs];
+            if isempty(peakInfo)
+                peakInfo = double.empty(0,2);
+            end
+        end
+        
+        function syncData = calculateSynchronous(app, peakLocs, nFrames, nSyn, keepSyn)
+            tempSync = zeros(nFrames, nSyn);
+            xVar = app.Opt.PeakMinDuration;
+            for s = 1:nSyn
+                if keepSyn(s)
+                    sStart = peakLocs{s};
+                    for p = 1:length(sStart)
+                        xStart = max(1, sStart(p)-xVar);
+                        xEnd = min(nFrames, sStart(p)+xVar);
+                        tempSync(xStart:xEnd, s) = 1;
+                    end
+                end
+            end
+            syncData = sum(tempSync, 2);
+        end
+        
+        function clickedPoint = GetClickedCoordinate(app, event)
+            if event.Button == 3
+                if app.ZoomInButton.Value
+                    oldXAxis = app.UIAxesPlot.XLim;
+                    xIncrement = (length(app.imgT.DetrendData{app.currCell}) / 10) / app.imgT.Fs(app.currCell) - 1;
+                    if event.IntersectionPoint(1) > sum(oldXAxis)/2
+                        newXAxis = oldXAxis + xIncrement;
+                    else
+                        newXAxis = oldXAxis - xIncrement;
+                    end
+                    app.UIAxesPlot.XLim = newXAxis;
+                end
+            else
+                if app.AddPeaksButton.Value
+                    clickedPoint = event.IntersectionPoint(1);
+                    addManualPeak(app, clickedPoint);
+                end
+                if app.DeletePeaksButton.Value
+                    clickedPoint = event.IntersectionPoint(1);
+                    deleteManualPeak(app, clickedPoint);
+                end
+            end
+        end
+        
+        function crosshairCursor(app, event)
+            if strcmp(app.UIFigure.Pointer, 'arrow')
+                app.UIFigure.Pointer = 'crosshair';
+                app.DeletePeaksButton.Enable = app.DeletePeaksButton.Value;
+                app.AddPeaksButton.Enable = app.AddPeaksButton.Value;
+            else
+                app.UIFigure.Pointer = 'arrow';
+                app.DeletePeaksButton.Enable = 'on';
+                app.AddPeaksButton.Enable = 'on';
+                app.AddPeaksButton.Value = false;
+                app.DeletePeaksButton.Value = false;
+            end
+            drawnow();
+            updatePlot(app);
+        end
+    end
+    
+    % Method for table tab
+    methods (Access = private)
+        function populateTable(app, event)
+            if strcmp(app.TabGroup.SelectedTab.Title, 'Table')
+                % Get the cell that we are looking at
+                tempTraces = app.imgT.DetrendData{app.currCell};
+                Fs = app.imgT.Fs(app.currCell);
+                [nFrames, nSyn] = size(tempTraces);
+                synN = (1:nSyn)';
+                synInt = cellfun(@mean, app.imgT.PeakInt{app.currCell});
+                synFreq = cellfun(@numel, app.imgT.PeakInt{app.currCell}) / (nFrames/Fs);
+                synKeep = app.imgT.KeepSyn{app.currCell};
+                app.UITable.Data = table(synN, synInt, synFreq, synKeep);
+                app.UITable.ColumnEditable = [false, false, false, true];
+                plotRaster(app, tempTraces);
+            else
+                % Clear the table and the axis
+                cla(app.UIAxesRaster);
+                cla(app.UIAxes4);
+                app.UITable.Data = [];
+            end
+        end
+        
+        function plotRaster(app, tempTraces)
+            tempRaster = tempTraces;
+            keepSyn = app.imgT.KeepSyn{app.currCell};
+            Fs = app.imgT.Fs(app.currCell);
+            time = (0:length(tempRaster)-1) / Fs;
+            cellSpace = max(tempRaster,[],'all') / 3;
+            cellNum = (1:size(tempRaster,2)) * cellSpace;
+            tempRaster = tempRaster + repmat(cellNum,size(tempRaster,1),1);
+            plot(app.UIAxesRaster, time, tempRaster, 'k')
+            % Adjust the color based on the keep data
+            for s = 1:numel(keepSyn)
+                if ~keepSyn(s)
+                    keepIdx = numel(keepSyn) - s +1;
+                    app.UIAxesRaster.Children(keepIdx).Color = [0.9 0.9 0.9];
+                end
+            end
+            yMin = round(min(tempRaster,[],'all'), 2, 'significant');
+            yMax = round(max(tempRaster,[],'all'), 2, 'significant') + cellSpace;
+            app.UIAxesRaster.YLim = [yMin, yMax];
+            app.UIAxesRaster.YTick = linspace(yMin+cellSpace, yMax-cellSpace, size(tempRaster,2));
+            app.UIAxesRaster.YTickLabel = 1:size(tempRaster,2);
+            title(app.UIAxesRaster, regexprep(app.imgT.CellID(app.currCell), '_', ' '))
+            % Plot the average trace
+            tempSync = app.imgT.PeakSync{app.currCell};
+            area(app.UIAxes4, time, tempSync, 'EdgeColor', 'none', 'FaceColor', 'r', 'FaceAlpha', .3)
+            hold(app.UIAxes4, 'on')
+            plot(app.UIAxes4, time, mean(tempTraces(:,keepSyn),2)*max(tempSync)*10, 'k');
+        end
+        
+        function updateRaster(app, event)
+            newKeep = event.Source.Data.synKeep;
+            oldKeep = app.imgT.KeepSyn{app.currCell};
+            keepChanged = find(newKeep ~= oldKeep);
+            keepIdx = numel(newKeep) - keepChanged +1;
+            if newKeep(keepChanged)
+                app.UIAxesRaster.Children(keepIdx).Color = [0 0 0];
+            else
+                app.UIAxesRaster.Children(keepIdx).Color = [0.9 0.9 0.9];
+            end
+            app.imgT.KeepSyn{app.currCell} = newKeep;
+            % Calculate the new synchronous and plot the average trace
+            cla(app.UIAxes4)
+            tempTraces = app.imgT.DetrendData{app.currCell};
+            Fs = app.imgT.Fs(app.currCell);
+            time = (0:length(tempTraces)-1) / Fs;
+            tempSync = calculateSynchronous(app, app.imgT.PeakLoc{app.currCell}, length(tempTraces), numel(newKeep), newKeep);
+            area(app.UIAxes4, time, tempSync, 'EdgeColor', 'none', 'FaceColor', 'r', 'FaceAlpha', .3)
+            hold(app.UIAxes4, 'on')
+            plot(app.UIAxes4, time, mean(tempTraces(:,newKeep),2)*max(tempSync)*10, 'k');
         end
     end
     
@@ -710,15 +988,17 @@ classdef GluTA < matlab.apps.AppBase
                 'MenuSelectedFcn', createCallbackFcn(app, @FileLabelConditionSelected, true), 'Separator', 'on');
             
             % Define multiple tabs where to store the UI
-            app.TabGroup = uitabgroup(app.UIFigure, 'Position', [2 3 1894 940]);
+            app.TabGroup = uitabgroup(app.UIFigure, 'Position', [2 3 1894 940], 'SelectionChangedFcn', createCallbackFcn(app, @populateTable, true));
             app.MainTab = uitab(app.TabGroup, 'Title', 'Main');
             app.TableTab = uitab(app.TabGroup, 'Title', 'Table');
             
             % Create the visual components: Movie and plot axes with slider
             app.UIAxesMovie = uiaxes(app.MainTab, 'Position', [36 63 806 806], 'Visible', 'off');
             title(app.UIAxesMovie, ''); xlabel(app.UIAxesMovie, ''); ylabel(app.UIAxesMovie, '')
-            app.UIAxesPlot = uiaxes(app.MainTab, 'Position', [870 12 990 327], 'Visible', 'on');
-            title(app.UIAxesPlot, ''); xlabel(app.UIAxesPlot, 'Time (s)'); ylabel(app.UIAxesPlot, 'iGluSnFR (a.u.)')
+            app.UIAxesPlot = uiaxes(app.MainTab, 'Position', [870 12 990 327], 'Visible', 'on',...
+                'ButtonDownFcn', createCallbackFcn(app, @GetClickedCoordinate, true));
+            title(app.UIAxesPlot, ''); xlabel(app.UIAxesPlot, 'Time (s)'); ylabel(app.UIAxesPlot, 'iGluSnFR (a.u.)');
+            app.UIAxesPlot.Toolbar.Visible = 'off';
             app.SliderMovie = uislider(app.MainTab, 'Position', [36 44 806 3], 'Visible', 'off',...
                 'ValueChangingFcn', createCallbackFcn(app, @SliderMovieMoved, true));
             
@@ -731,12 +1011,14 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'off');
             
             % Create DetrendButton, Export and Fix Y axis value
-            app.DetrendButton = uibutton(app.MainTab, 'state', 'Text', 'Detrend', 'Position', [1560 338 100 22],...
-                'Enable', 'off');
             app.ExportTraceButton = uibutton(app.MainTab, 'state', 'Text', 'Export trace', 'Position', [1032 381 100 22],...
                 'Enable', 'off');
             app.FixYAxisButton = uibutton(app.MainTab, 'state', 'Text', 'Fix Y Axis', 'Position', [1450 338 100 22],...
+                'Enable', 'off', 'ValueChangedFcn', createCallbackFcn(app, @fixYAxis, false));
+            app.DetrendButton = uibutton(app.MainTab, 'state', 'Text', 'Detrend', 'Position', [1560 338 100 22],...
                 'Enable', 'off');
+            app.ZoomInButton = uibutton(app.MainTab, 'state', 'Text', 'Zoom In', 'Position', [1670 338 100 22],...
+                'Enable', 'on', 'ValueChangedFcn', createCallbackFcn(app, @ZoomIn, false));
             
             % Create Synapse navigation panel
             app.PrevButton = uibutton(app.MainTab, 'push', 'Text', 'Prev', 'Position', [1089 338 36 22],...
@@ -747,10 +1029,10 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'off', 'ButtonPushedFcn', createCallbackFcn(app, @nextButtonPressed, false));
             
             % Create Manual peaks detection panel
-            app.AddPeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Add peaks', 'Position', [1230 338 100 22],...
-                'Enable', 'off');
-            app.DeletePeaksButton = uibutton(app.MainTab, 'push', 'Text', 'Delete peaks', 'Position', [1340 338 100 22],...
-                'Enable', 'off');
+            app.AddPeaksButton = uibutton(app.MainTab, 'state', 'Text', 'Add peaks', 'Position', [1230 338 100 22],...
+                'Enable', 'off', 'ValueChangedFcn', createCallbackFcn(app, @crosshairCursor, true));
+            app.DeletePeaksButton = uibutton(app.MainTab, 'state', 'Text', 'Delete peaks', 'Position', [1340 338 100 22],...
+                'Enable', 'off', 'ValueChangedFcn', createCallbackFcn(app, @crosshairCursor, true));
             
             % Create Movie Toggles
             app.ShowMovieButton = uibutton(app.MainTab, 'state', 'Text', 'Show Movie', 'Position', [36 878 100 22], 'Enable', 'off',...
@@ -792,50 +1074,69 @@ classdef GluTA < matlab.apps.AppBase
             % Create LoadOptionsPanel
             app.LoadOptionsPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Load Options', 'Position', [11 207 177 255]);
             app.ImagingFrequencyLabel = uilabel(app.LoadOptionsPanel, 'Text', 'Frequency', 'Position', [4 204 63 22]);
-            app.ImagingFrequencyEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 204 45 22], 'Value', app.Opt.ImgFrequency);
-            app.MultipleRecordingCheckBox = uicheckbox(app.LoadOptionsPanel, 'Text', 'Multiple Recordings', 'Position', [4 166 177 22], 'Value', app.Opt.MultiRecording);
+            app.ImagingFrequencyEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 204 45 22], 'Value', app.Opt.ImgFrequency,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
+            app.MultipleRecordingCheckBox = uicheckbox(app.LoadOptionsPanel, 'Text', 'Multiple Recordings', 'Position', [4 166 177 22], 'Value', app.Opt.MultiRecording,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.RecordingIdentifierLabel = uilabel(app.LoadOptionsPanel, 'Position', [4 137 52 22], 'Text', 'Identifier');
-            app.RecordingIdentifierEdit = uieditfield(app.LoadOptionsPanel, 'text', 'Position', [98 137 45 22], 'Value', app.Opt.RecIDs);
-            app.StimulationCheckBox = uicheckbox(app.LoadOptionsPanel,'Text', 'Stimulation', 'Position', [4 91 81 22], 'Value', app.Opt.MultiStimulation);
+            app.RecordingIdentifierEdit = uieditfield(app.LoadOptionsPanel, 'text', 'Position', [98 137 45 22], 'Value', app.Opt.RecIDs,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
+            app.StimulationCheckBox = uicheckbox(app.LoadOptionsPanel,'Text', 'Stimulation', 'Position', [4 91 81 22], 'Value', app.Opt.MultiStimulation,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.StimulationIdentifierLabel = uilabel(app.LoadOptionsPanel, 'Position', [4 57 52 22], 'Text', 'Identifier');
-            app.StimulationIdentifierEdit = uieditfield(app.LoadOptionsPanel, 'text', 'Position', [98 57 45 22], 'Value', app.Opt.StimIDs);
+            app.StimulationIdentifierEdit = uieditfield(app.LoadOptionsPanel, 'text', 'Position', [98 57 45 22], 'Value', app.Opt.StimIDs,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.StimNumLabel = uilabel(app.LoadOptionsPanel, 'Position', [4 23 94 22], 'Text', 'How many stim?');
-            app.StimNumEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 23 45 22], 'Value', app.Opt.StimNum);
+            app.StimNumEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 23 45 22], 'Value', app.Opt.StimNum,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
 
             % Create ROIDetectionPanel
             app.ROIDetectionPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'ROI Detection', 'Position', [201 341 453 121]);
             app.ROISizeLabel = uilabel(app.ROIDetectionPanel, 'HorizontalAlignment', 'right', 'Position', [10 69 129 22], 'Text', 'Expected ROI size (px)');
-            app.ROISizeEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [154 69 24 22], 'Value', app.Opt.RoiSize);
+            app.ROISizeEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [154 69 24 22], 'Value', app.Opt.RoiSize,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.ROISigmaLabel = uilabel(app.ROIDetectionPanel, 'Position', [274 70 124 22], 'Text', 'Gaussian window size');
-            app.ROISigmaEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [413 70 24 22], 'Value', app.Opt.RoiSigma);
+            app.ROISigmaEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [413 70 24 22], 'Value', app.Opt.RoiSigma,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.ProminenceROIsDropDownLabel = uilabel(app.ROIDetectionPanel, 'Position', [14 32 128 22], 'Text', 'Prominence estimation');
-            app.ProminenceROIsDropDown = uidropdown(app.ROIDetectionPanel, 'Items', {'Standard Deviation', 'MAD'}, 'Position', [157 32 100 22], 'Value', app.Opt.RoiProminence);
+            app.ProminenceROIsDropDown = uidropdown(app.ROIDetectionPanel, 'Items', {'Standard Deviation', 'MAD'}, 'Position', [157 32 100 22], 'Value', app.Opt.RoiProminence,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.ProminenceROISigmaLabel = uilabel(app.ROIDetectionPanel, 'Position', [274 32 128 22], 'Text', 'ROI prominence sigma');
-            app.ProminenceROISigmaEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [417 32 24 22], 'Value', app.Opt.RoiProminenceSigma);
+            app.ProminenceROISigmaEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [417 32 24 22], 'Value', app.Opt.RoiProminenceSigma,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
 
             % Create PeakDetectionPanel
             app.PeakDetectionPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Peak Detection', 'Position', [201 162 453 159]);
             app.PeakThresholdMethodDropDownLabel = uilabel(app.PeakDetectionPanel, 'HorizontalAlignment', 'right', 'Position', [10 111 102 22], 'Text', 'Threshold method');
-            app.PeakThresholdMethodDropDown = uidropdown(app.PeakDetectionPanel, 'Items', {'MAD', 'Rolling StDev'}, 'Position', [127 111 100 22], 'Value', app.Opt.PeakThreshold);
+            app.PeakThresholdMethodDropDown = uidropdown(app.PeakDetectionPanel, 'Items', {'MAD', 'Rolling StDev'}, 'Position', [127 111 100 22], 'Value', app.Opt.PeakThreshold,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.PeakSigmaLabel = uilabel(app.PeakDetectionPanel, 'Position', [270 111 94 22], 'Text', 'Threshold sigma');
-            app.PeakSigmaEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [413 111 24 22], 'Value', app.Opt.PeakThrSigma);
+            app.PeakSigmaEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [390 111 50 22], 'Value', app.Opt.PeakThrSigma,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.PeakMinProminenceLabel = uilabel(app.PeakDetectionPanel, 'Position', [14 79 124 22], 'Text', 'Minumum prominence');
-            app.PeakMinProminenceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [157 79 24 22], 'Value', app.Opt.PeakMinProm);
+            app.PeakMinProminenceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [157 79 50 22], 'Value', app.Opt.PeakMinProm,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.PeakMinDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [271 79 107 22], 'Text', 'Minumum Duration');
-            app.PeakMinDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [414 79 24 22], 'Value', app.Opt.PeakMinDuration);
+            app.PeakMinDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [390 79 50 22], 'Value', app.Opt.PeakMinDuration,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.MinDistanceLabel = uilabel(app.PeakDetectionPanel, 'Position', [15 41 108 22], 'Text', 'Minumum Distance');
-            app.PeakMinDistanceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [158 41 24 22], 'Value', app.Opt.PeakMinDistance);
+            app.PeakMinDistanceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [158 41 50 22], 'Value', app.Opt.PeakMinDistance,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.MaxDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [270 41 106 22], 'Text', 'Maximum Duration');
-            app.PeakMaxDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [413 41 24 22], 'Value', app.Opt.PeakMaxDuration);
+            app.PeakMaxDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [390 41 50 22], 'Value', app.Opt.PeakMaxDuration,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             
             % Create PeakDetectionPanel
             app.DetrendOptionsPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Detrend options', 'Position', [12 48 176 140]);
             app.MethodDropDownLabel = uilabel(app.DetrendOptionsPanel, 'Position', [10 88 56 22], 'Text', 'Method');
-            app.MethodDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'None', 'Moving median', 'Erosion', 'Polynomial'}, 'Position', [80 88 87 22], 'Value', app.Opt.Detrending);
+            app.MethodDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'None', 'Moving median', 'Erosion', 'Polynomial'}, 'Position', [80 88 87 22], 'Value', app.Opt.Detrending,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.WindowSizeLabel = uilabel(app.DetrendOptionsPanel, 'Position', [8 53 73 22], 'Text', 'Window size');
-            app.WindowSizeEdit = uieditfield(app.DetrendOptionsPanel, 'numeric', 'Position', [122 53 43 22], 'Value', app.Opt.DetrendSize);
+            app.WindowSizeEdit = uieditfield(app.DetrendOptionsPanel, 'numeric', 'Position', [122 53 43 22], 'Value', app.Opt.DetrendSize,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.VisualizeDropDownLabel = uilabel(app.DetrendOptionsPanel, 'Position', [8 19 56 22], 'Text', 'Visualize');
-            app.VisualizeDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'Raw', 'Gradient', 'Smooth'}, 'Position', [78 19 87 22], 'Value', app.Opt.DetectTrace);
+            app.VisualizeDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'Raw', 'Gradient', 'Smooth'}, 'Position', [78 19 87 22], 'Value', app.Opt.DetectTrace,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
 
             % Create StimulationProtocolPanel
             app.StimulationProtocolPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Stimulation protocol', 'Position', [202 5 452 144]);
@@ -852,14 +1153,15 @@ classdef GluTA < matlab.apps.AppBase
             app.TrainsIDsEdit = uieditfield(app.StimulationProtocolPanel, 'text', 'Position', [102 93 45 22], 'Value', '5Hz');
             
             % Create UITable
-            app.UITable = uitable(app.TableTab, 'ColumnName', {'Column 1'; 'Column 2'; 'Column 3'; 'Column 4'}, 'RowName', {}, 'Position', [25 12 381 888]);
+            app.UITable = uitable(app.TableTab, 'ColumnName', {'Synapse #'; 'Mean Int'; 'Freq'; 'Keep'}, 'RowName', {}, 'Position', [25 12 381 888],...
+                'ColumnEditable', [false false false true], 'DisplayDataChangedFcn', createCallbackFcn(app, @updateRaster, true));
 
-            % Create UIAxes3
-            app.UIAxes3 = uiaxes(app.TableTab);
-            title(app.UIAxes3, 'Title')
-            xlabel(app.UIAxes3, 'X')
-            ylabel(app.UIAxes3, 'Y')
-            app.UIAxes3.Position = [433 338 731 562];
+            % Create UIAxesRaster
+            app.UIAxesRaster = uiaxes(app.TableTab);
+            title(app.UIAxesRaster, 'Title')
+            xlabel(app.UIAxesRaster, 'Time (s)')
+            ylabel(app.UIAxesRaster, 'Synapse #')
+            app.UIAxesRaster.Position = [433 338 731 562];
 
             % Create UIAxes4
             app.UIAxes4 = uiaxes(app.TableTab);
@@ -949,6 +1251,7 @@ classdef GluTA < matlab.apps.AppBase
             s.GluTA.Detrending.PersonalValue = app.Opt.Detrending;
             s.GluTA.DetrendSize.PersonalValue = app.Opt.DetrendSize;
             s.GluTA.DetectTrace.PersonalValue = app.Opt.DetectTrace;
+            
         end
         
     end
