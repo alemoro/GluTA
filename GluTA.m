@@ -770,6 +770,9 @@ classdef GluTA < matlab.apps.AppBase
                     ZoomIn(app);
             end
         end
+        
+        function ExportPlot(app, event)
+        end
     end
     
     % Housekeeping methods
@@ -974,23 +977,6 @@ classdef GluTA < matlab.apps.AppBase
             end
         end
         
-        function RasterClicked(app, event)
-            if app.ZoomRasterButton.Value
-                ticks = app.UIAxesRaster.YTick;
-                yInc = mean(diff(ticks)) * 2;
-                oldY = app.UIAxesRaster.YLim;
-                if event.Button == 1
-                    oldY = find(ticks >= oldY(2), 1) - 1;
-                    newXAxis = [ticks(oldY)-yInc, ticks(min(oldY+10, numel(ticks)))+yInc];
-                    app.UIAxesRaster.YLim = newXAxis;
-                elseif event.Button == 3
-                    oldY = find(ticks >= oldY(1), 1) - 1;
-                    newXAxis = [ticks(max(oldY-10, 1))-yInc, ticks(oldY)+yInc];
-                    app.UIAxesRaster.YLim = newXAxis;
-                end
-            end
-        end
-        
         function crosshairCursor(app, event)
             if strcmp(app.UIFigure.Pointer, 'arrow')
                 app.UIFigure.Pointer = 'crosshair';
@@ -1014,7 +1000,7 @@ classdef GluTA < matlab.apps.AppBase
             for c = dataFltr'
                 tempTraces = app.imgT.DetrendData{c};
                 Fs = app.imgT.Fs(c);
-                nFrames = size(tempTraces, 1);
+                [nFrames, nSyn] = size(tempTraces);
                 synKeep = app.imgT.KeepSyn{c};
                 % Get the intensity and frequency
                 synInt = cellfun(@mean, app.imgT.PeakInt{c});
@@ -1022,12 +1008,12 @@ classdef GluTA < matlab.apps.AppBase
                 app.imgT.MeanInt(c) = mean(synInt(synKeep));
                 app.imgT.MeanFreq(c) = mean(synFreq(synKeep));
                 % Get the % of active synapses
-                tempData = app.imgT.PeakSync{c};
+                tempData = calculateSynchronous(app, app.imgT.PeakLoc{c}, nFrames, nSyn, synKeep);
                 nSyn = sum(synKeep);
                 if nSyn > 0
-                    app.imgT.MaxActiveSyn(c) = (max(tempData(synKeep)) ./ nSyn * 100);
-                    app.imgT.TimeActive(c) = sum(tempData(synKeep) > 1) / nFrames * 100;
-                    app.imgT.TimeSync(c) = sum(tempData(synKeep) > nSyn *.2) / nFrames * 100;
+                    app.imgT.MaxActiveSyn(c) = (max(tempData) ./ nSyn * 100);
+                    app.imgT.TimeActive(c) = sum(tempData > 1) / nFrames * 100;
+                    app.imgT.TimeSync(c) = sum(tempData > nSyn *.2) / nFrames * 100;
                 else
                     app.imgT.MaxActiveSyn(c) = 0;
                     app.imgT.TimeActive(c) = 0;
@@ -1056,22 +1042,26 @@ classdef GluTA < matlab.apps.AppBase
                 app.UITableSingle.ColumnEditable = [false, false, false, true];
                 plotRaster(app, tempTraces);
                 % Populate the table for all the cells
-                quantifySpikes(app);
-                dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
-                cellID = app.imgT{dataFltr, 'CellID'};
-                recID = app.imgT{dataFltr, 'StimID'};
-                cellFreq = app.imgT{dataFltr, 'MeanFreq'};
-                cellInt = app.imgT{dataFltr, 'MeanInt'};
-                cellActive = app.imgT{dataFltr, 'TimeActive'};
-                cellSync = app.imgT{dataFltr, 'TimeSync'};
-                cellMax = app.imgT{dataFltr, 'MaxActiveSyn'};
-                app.UITableAll.Data = table(cellID, recID, cellFreq, cellInt, cellActive, cellSync, cellMax);
+                populateCellTable(app)
             else
                 % Clear the table and the axis
                 cla(app.UIAxesRaster, 'reset');
                 cla(app.UIAxesOverview, 'reset');
                 app.UITableSingle.Data = [];
             end
+        end
+        
+        function populateCellTable(app)
+            quantifySpikes(app);
+            dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+            cellID = app.imgT{dataFltr, 'CellID'};
+            recID = app.imgT{dataFltr, 'StimID'};
+            cellFreq = app.imgT{dataFltr, 'MeanFreq'};
+            cellInt = app.imgT{dataFltr, 'MeanInt'};
+            cellActive = app.imgT{dataFltr, 'TimeActive'};
+            cellSync = app.imgT{dataFltr, 'TimeSync'};
+            cellMax = app.imgT{dataFltr, 'MaxActiveSyn'};
+            app.UITableAll.Data = table(cellID, recID, cellFreq, cellInt, cellActive, cellSync, cellMax);
         end
         
         function plotRaster(app, tempTraces)
@@ -1141,7 +1131,7 @@ classdef GluTA < matlab.apps.AppBase
         
         function TableSelectedCell(app, event)
             % First check if there is one or two colum selected
-            if size(event.Indices, 1    ) == 1
+            if size(event.Indices, 1) == 1
                 switch app.UITableAll.ColumnName{event.Indices(2)}
                     case {'CellID', 'RecID'}
                         % get the cell selected and show it
@@ -1155,6 +1145,7 @@ classdef GluTA < matlab.apps.AppBase
                         togglePointer(app)
                         % First make sure that the data is up to date
                         quantifySpikes(app)
+                        populateCellTable(app)
                         cla(app.UIAxesBox);
                         hold(app.UIAxesBox, 'on');
                         vars = {'MeanFreq', 'MeanInt', 'TimeActive', 'TimeSync', 'MaxActiveSyn'};
@@ -1162,7 +1153,42 @@ classdef GluTA < matlab.apps.AppBase
                         dataBoxPlot(app, app.imgT{:,varX}, app.imgT.ConditionID, app.imgT.BatchID, varX)
                         togglePointer(app)
                 end
+            elseif size(event.Indices, 1) == 2
+                % Scatter plot of the data
+                cla(app.UIAxesBox);
+                reset(app.UIAxesBox);
+                hold(app.UIAxesBox, 'on');
                 
+                vars = {'MeanFreq', 'MeanInt', 'TimeActive', 'TimeSync', 'MaxActiveSyn'};
+                varX = vars{event.Indices(1,2)-2};
+                varY = vars{event.Indices(2,2)-2};
+                
+                uniCond = categories(app.imgT.ConditionID);
+                nCond = numel(uniCond);
+                cmap = lines;
+                for c = 1:nCond
+                    condFltr = app.imgT.ConditionID == uniCond(c);
+                    plot(app.UIAxesBox, app.imgT{condFltr,varX}, app.imgT{condFltr,varY}, 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerEdgeColor', cmap(c,:))
+                end
+                xlabel(app.UIAxesBox, varX)
+                ylabel(app.UIAxesBox, varY)
+            end
+        end
+        
+        function RasterClicked(app, event)
+            if app.ZoomRasterButton.Value
+                ticks = app.UIAxesRaster.YTick;
+                yInc = mean(diff(ticks)) * 2;
+                oldY = app.UIAxesRaster.YLim;
+                if event.Button == 1
+                    oldY = find(ticks >= oldY(2), 1) - 1;
+                    newXAxis = [ticks(oldY)-yInc, ticks(min(oldY+10, numel(ticks)))+yInc];
+                    app.UIAxesRaster.YLim = newXAxis;
+                elseif event.Button == 3
+                    oldY = find(ticks >= oldY(1), 1) - 1;
+                    newXAxis = [ticks(max(oldY-10, 1))-yInc, ticks(oldY)+yInc];
+                    app.UIAxesRaster.YLim = newXAxis;
+                end
             end
         end
         
@@ -1203,6 +1229,9 @@ classdef GluTA < matlab.apps.AppBase
             app.UIAxesBox.XTickLabel = uniCond;
             app.UIAxesBox.XTickLabelRotation = 45;
             ylabel(app.UIAxesBox, varLabel)
+        end
+        
+        function ResetRaster(app)
         end
     end
     
