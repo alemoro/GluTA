@@ -101,9 +101,18 @@ classdef GluTA < matlab.apps.AppBase
         DetectROIsButton
         DetectPeaksButton
         TableTab
-        UITable
+        TableMenu
+        FilterTable
+        FilterIntensity
+        FilterFrequency
+        UITableSingle
         UIAxesRaster
-        UIAxes4
+        UIAxesOverview
+        ZoomRasterButton
+        ResetRasterButton
+        ExportRasterButton
+        UITableAll
+        UIAxesBox
     end
     
     % Housekeeping properties
@@ -129,6 +138,12 @@ classdef GluTA < matlab.apps.AppBase
             legend(app.UIAxesPlot, 'off');
             % Filter the cells that needs to be plotted
             tempData = app.imgT.DetrendData{app.currCell};
+            switch app.VisualizeDropDown.Value
+                case 'Gradient'
+                    tempData = gradient(tempData);
+                case 'Smooth'
+                    tempData = wdenoise(tempData, 5, 'DenoisingMethod', 'BlockJS');
+            end
             Fs = app.imgT.Fs(app.currCell);
             time = (0:length(tempData)-1) / Fs;
             % Add some checks if there is stimulation needed
@@ -219,6 +234,7 @@ classdef GluTA < matlab.apps.AppBase
             nCell = numel(cellIDs);
             peakLoc = cell(nCell,1);
             peakInt = cell(nCell,1);
+            peakProm = cell(nCell,1);
             keepSyn = cell(nCell,1);
             syncPeak = cell(nCell,1);
             hWait = waitbar(0, 'Detecting peaks in data');
@@ -231,20 +247,24 @@ classdef GluTA < matlab.apps.AppBase
                     nSyn = size(tempData,2);
                     synLoc = cell(nSyn,1);
                     synInt = cell(nSyn,1);
+                    synProm = cell(nSyn,1);
                     for s = 1:nSyn
                         tempThr = calculateThreshold(app, tempData, s);
                         peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
                         synInt{s} = peakInfo(:,1);
                         synLoc{s} = peakInfo(:,2);
+                        synProm{s} = peakInfo(:,2);
                     end
                     peakLoc{cells} = synLoc;
                     peakInt{cells} = synInt;
-                    keepSyn{cells} = true(nSyn,1);
+                    peakProm{cells} = synProm;
+                    keepSyn{cells} = cellfun(@numel, synLoc) / (length(tempData)/Fs) > 0.3;
                     % Calculate the synchronous peaks (based on the minimum distance)
                     syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells});
                 end
                 app.imgT.PeakLoc(cellIDs) = peakLoc;
                 app.imgT.PeakInt(cellIDs) = peakInt;
+                app.imgT.PeakProm(cellIDs) = peakProm;
                 app.imgT.KeepSyn(cellIDs) = keepSyn;
                 app.imgT.PeakSync(cellIDs) = syncPeak;
                 updatePlot(app);
@@ -318,6 +338,31 @@ classdef GluTA < matlab.apps.AppBase
             end
             app.imgT.PeakLoc{app.currCell}{synN} = allLoc;
             app.imgT.PeakInt{app.currCell}{synN} = allInt;
+        end
+        
+        function TableFilterSelected(app, event)
+            % First get the value to use for filtering
+            fltrVal = str2double(inputdlg('Choose the minimum value', 'Filter value'));
+            % Get the right cell
+            tempPeak = app.imgT.PeakInt{app.currCell};
+            tempKeep = app.imgT.KeepSyn{app.currCell};
+            switch event.Source.Text
+                case 'Mean Intensity'
+                    % Get the averave intensity of the synapses
+                    synInt = cellfun(@mean, tempPeak);
+                    tempKeep = synInt > fltrVal;
+                case 'Mean Frequency'
+                    % Get the frequency of spikes per synapse
+                    tempTraces = app.imgT.DetrendData{app.currCell};
+                    Fs = app.imgT.Fs(app.currCell);
+                    nFrames = size(tempTraces, 1);
+                    synFreq = cellfun(@sum, tempPeak) / (nFrames/Fs);
+                    tempKeep = synFreq > fltrVal;
+            end
+            % Store the new values and update the raster plot
+            app.imgT.KeepSyn{app.currCell} = tempKeep;
+            app.UITableSingle.Data.synKeep = tempKeep;
+            updateRaster(app);
         end
     end
     
@@ -660,13 +705,27 @@ classdef GluTA < matlab.apps.AppBase
             end
         end
         
-        function ZoomIn(app)
-            if app.ZoomInButton.Value
-                oldXAxis = app.UIAxesPlot.XLim;
-                newXAxis = [oldXAxis(1), oldXAxis(end)/10];
-                app.UIAxesPlot.XLim = newXAxis;
-            else
-                app.UIAxesPlot.XLimMode = 'auto';
+        function ZoomIn(app, event)
+            switch event.Source.Text
+                case 'Zoom In'
+                    if app.ZoomInButton.Value
+                        oldXAxis = app.UIAxesPlot.XLim;
+                        newXAxis = [oldXAxis(1), oldXAxis(end)/10];
+                        app.UIAxesPlot.XLim = newXAxis;
+                    else
+                        app.UIAxesPlot.XLimMode = 'auto';
+                    end
+                case 'Zoom'
+                    if app.ZoomRasterButton.Value
+                        ticks = app.UIAxesRaster.YTick;
+                        yInc = mean(diff(ticks));
+                        newXAxis = [0, ticks(10)+(2*yInc)];
+                        app.UIAxesRaster.YLim = newXAxis;
+                    else
+                        ticks = app.UIAxesRaster.YTick;
+                        yInc = mean(diff(ticks));
+                        app.UIAxesRaster.YLim = [0 ticks(end)+(2*yInc)];
+                    end
             end
         end
         
@@ -678,14 +737,34 @@ classdef GluTA < matlab.apps.AppBase
                 case "d" % Delete peaks
                     app.DeletePeaksButton.Value = true;
                     crosshairCursor(app, event);
-                case "rightarrow" % move to next cell
+                case "rightarrow" % move to next synapse
                     if app.SingleTracesRadio.Value
                         nextButtonPressed(app)
                     end
-                case "leftarrow" % move to previous cell
+                case "leftarrow" % move to previous synapse
                     if app.SingleTracesRadio.Value
                         prevButtonPressed(app)
                     end
+                case "downarrow" % move to next cell
+                    thisCell = find(matches(app.List_CellID.Items, app.List_CellID.Value));
+                    nCells = numel(app.List_CellID.Items);
+                    if thisCell < nCells
+                        app.List_CellID.Value = app.List_CellID.Items{thisCell + 1};
+                    else
+                        app.List_CellID.Value = app.List_CellID.Items{1};
+                    end
+                    populateRecID(app);
+                    populateTable(app, event)
+                case "uparrow" % move to next cell
+                    thisCell = find(matches(app.List_CellID.Items, app.List_CellID.Value));
+                    nCells = numel(app.List_CellID.Items);
+                    if thisCell > 1
+                        app.List_CellID.Value = app.List_CellID.Items{thisCell - 1};
+                    else
+                        app.List_CellID.Value = app.List_CellID.Items{nCells};
+                    end
+                    populateRecID(app);
+                    populateTable(app, event)
                 case "z"
                     app.ZoomInButton.Value = ~app.ZoomInButton.Value;
                     ZoomIn(app);
@@ -769,6 +848,29 @@ classdef GluTA < matlab.apps.AppBase
             end
         end
         
+        function detrendData(app)
+            recList = matches(app.imgT.StimID, app.List_RecID.Value);
+            ff0Data = app.imgT{recList, 'FF0Data'};
+            nData = numel(ff0Data);
+            detData = cell(nData,1);
+            switch app.Opt.Detrending
+                case 'None'
+                    app.imgT.DetrendData(recList) = ff0Data;
+                case 'Moving median'
+                    warndlg('Not implemented yet!', 'Detrend failed');
+                case 'Erosion'
+                    for d = 1:nData
+                        tempData = ff0Data{d};
+                        fitData = imerode(tempData, ones(app.Opt.DetrendSize,1));
+                        detData{d} = tempData - fitData;
+                    end
+                    app.imgT.DetrendData(recList) = detData;
+                case 'Polynomial'
+                    warndlg('Not implemented yet!', 'Detrend failed');
+            end
+            updatePlot(app);
+        end
+        
         function showMovie(app)
             if app.ShowMovieButton.Value
                 app.movieData = loadMovie(app, app.currCell, false);
@@ -816,18 +918,19 @@ classdef GluTA < matlab.apps.AppBase
             minDura = app.PeakMinDurationEdit.Value;
             maxDura = app.PeakMaxDurationEdit.Value;
             minDist = app.PeakMinDistanceEdit.Value;
-           [tempPeak, tempLocs] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura, 'MinPeakDistance', minDist);
+           [tempPeak, tempLocs, ~, tempProm] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura, 'MinPeakDistance', minDist);
             % Filter the event that are below the threshold
             tempFltr = tempPeak > traceThr(tempLocs);
             tempPeak = tempPeak(tempFltr);
             tempLocs = tempLocs(tempFltr);
+            tempProm = tempProm(tempFltr);
             % Calculate the boundaries
             %%%%%%%%%%%
             %%%LATER%%%
             %%%%%%%%%%%
-            peakInfo = [tempPeak, tempLocs];
+            peakInfo = [tempPeak, tempLocs, tempProm];
             if isempty(peakInfo)
-                peakInfo = double.empty(0,2);
+                peakInfo = double.empty(0,3);
             end
         end
         
@@ -871,6 +974,23 @@ classdef GluTA < matlab.apps.AppBase
             end
         end
         
+        function RasterClicked(app, event)
+            if app.ZoomRasterButton.Value
+                ticks = app.UIAxesRaster.YTick;
+                yInc = mean(diff(ticks)) * 2;
+                oldY = app.UIAxesRaster.YLim;
+                if event.Button == 1
+                    oldY = find(ticks >= oldY(2), 1) - 1;
+                    newXAxis = [ticks(oldY)-yInc, ticks(min(oldY+10, numel(ticks)))+yInc];
+                    app.UIAxesRaster.YLim = newXAxis;
+                elseif event.Button == 3
+                    oldY = find(ticks >= oldY(1), 1) - 1;
+                    newXAxis = [ticks(max(oldY-10, 1))-yInc, ticks(oldY)+yInc];
+                    app.UIAxesRaster.YLim = newXAxis;
+                end
+            end
+        end
+        
         function crosshairCursor(app, event)
             if strcmp(app.UIFigure.Pointer, 'arrow')
                 app.UIFigure.Pointer = 'crosshair';
@@ -886,6 +1006,38 @@ classdef GluTA < matlab.apps.AppBase
             drawnow();
             updatePlot(app);
         end
+        
+        function quantifySpikes(app)
+            % Get the cells where there is data
+            dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+            try
+            for c = dataFltr'
+                tempTraces = app.imgT.DetrendData{c};
+                Fs = app.imgT.Fs(c);
+                nFrames = size(tempTraces, 1);
+                synKeep = app.imgT.KeepSyn{c};
+                % Get the intensity and frequency
+                synInt = cellfun(@mean, app.imgT.PeakInt{c});
+                synFreq = cellfun(@numel, app.imgT.PeakInt{c}) / (nFrames/Fs);
+                app.imgT.MeanInt(c) = mean(synInt(synKeep));
+                app.imgT.MeanFreq(c) = mean(synFreq(synKeep));
+                % Get the % of active synapses
+                tempData = app.imgT.PeakSync{c};
+                nSyn = sum(synKeep);
+                if nSyn > 0
+                    app.imgT.MaxActiveSyn(c) = (max(tempData(synKeep)) ./ nSyn * 100);
+                    app.imgT.TimeActive(c) = sum(tempData(synKeep) > 1) / nFrames * 100;
+                    app.imgT.TimeSync(c) = sum(tempData(synKeep) > nSyn *.2) / nFrames * 100;
+                else
+                    app.imgT.MaxActiveSyn(c) = 0;
+                    app.imgT.TimeActive(c) = 0;
+                    app.imgT.TimeSync(c) = 0;
+                end
+            end
+            catch
+                disp(c)
+            end
+        end
     end
     
     % Method for table tab
@@ -900,14 +1052,25 @@ classdef GluTA < matlab.apps.AppBase
                 synInt = cellfun(@mean, app.imgT.PeakInt{app.currCell});
                 synFreq = cellfun(@numel, app.imgT.PeakInt{app.currCell}) / (nFrames/Fs);
                 synKeep = app.imgT.KeepSyn{app.currCell};
-                app.UITable.Data = table(synN, synInt, synFreq, synKeep);
-                app.UITable.ColumnEditable = [false, false, false, true];
+                app.UITableSingle.Data = table(synN, synInt, synFreq, synKeep);
+                app.UITableSingle.ColumnEditable = [false, false, false, true];
                 plotRaster(app, tempTraces);
+                % Populate the table for all the cells
+                quantifySpikes(app);
+                dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+                cellID = app.imgT{dataFltr, 'CellID'};
+                recID = app.imgT{dataFltr, 'StimID'};
+                cellFreq = app.imgT{dataFltr, 'MeanFreq'};
+                cellInt = app.imgT{dataFltr, 'MeanInt'};
+                cellActive = app.imgT{dataFltr, 'TimeActive'};
+                cellSync = app.imgT{dataFltr, 'TimeSync'};
+                cellMax = app.imgT{dataFltr, 'MaxActiveSyn'};
+                app.UITableAll.Data = table(cellID, recID, cellFreq, cellInt, cellActive, cellSync, cellMax);
             else
                 % Clear the table and the axis
-                cla(app.UIAxesRaster);
-                cla(app.UIAxes4);
-                app.UITable.Data = [];
+                cla(app.UIAxesRaster, 'reset');
+                cla(app.UIAxesOverview, 'reset');
+                app.UITableSingle.Data = [];
             end
         end
         
@@ -933,15 +1096,23 @@ classdef GluTA < matlab.apps.AppBase
             app.UIAxesRaster.YTick = linspace(yMin+cellSpace, yMax-cellSpace, size(tempRaster,2));
             app.UIAxesRaster.YTickLabel = 1:size(tempRaster,2);
             title(app.UIAxesRaster, regexprep(app.imgT.CellID(app.currCell), '_', ' '))
+            box(app.UIAxesRaster, 'off');
+            app.UIAxesRaster.TickDir = 'out';
             % Plot the average trace
             tempSync = app.imgT.PeakSync{app.currCell};
-            area(app.UIAxes4, time, tempSync, 'EdgeColor', 'none', 'FaceColor', 'r', 'FaceAlpha', .3)
-            hold(app.UIAxes4, 'on')
-            plot(app.UIAxes4, time, mean(tempTraces(:,keepSyn),2)*max(tempSync)*10, 'k');
+            nSyn = size(tempRaster,2);
+            yyaxis(app.UIAxesOverview, 'left');
+            area(app.UIAxesOverview, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
+            ylabel(app.UIAxesOverview, '% of synapses')
+            yyaxis(app.UIAxesOverview, 'right');
+            plot(app.UIAxesOverview, time, mean(tempTraces(:,keepSyn),2), 'r');
+            ylabel(app.UIAxesOverview, 'iGluSnFR intensity (a.u.)')
+            box(app.UIAxesOverview, 'off');
+            app.UIAxesOverview.TickDir = 'out';
         end
         
         function updateRaster(app, event)
-            newKeep = event.Source.Data.synKeep;
+            newKeep = app.UITableSingle.Data.synKeep;
             oldKeep = app.imgT.KeepSyn{app.currCell};
             keepChanged = find(newKeep ~= oldKeep);
             keepIdx = numel(newKeep) - keepChanged +1;
@@ -952,14 +1123,86 @@ classdef GluTA < matlab.apps.AppBase
             end
             app.imgT.KeepSyn{app.currCell} = newKeep;
             % Calculate the new synchronous and plot the average trace
-            cla(app.UIAxes4)
+            cla(app.UIAxesOverview, 'reset')
             tempTraces = app.imgT.DetrendData{app.currCell};
             Fs = app.imgT.Fs(app.currCell);
             time = (0:length(tempTraces)-1) / Fs;
             tempSync = calculateSynchronous(app, app.imgT.PeakLoc{app.currCell}, length(tempTraces), numel(newKeep), newKeep);
-            area(app.UIAxes4, time, tempSync, 'EdgeColor', 'none', 'FaceColor', 'r', 'FaceAlpha', .3)
-            hold(app.UIAxes4, 'on')
-            plot(app.UIAxes4, time, mean(tempTraces(:,newKeep),2)*max(tempSync)*10, 'k');
+            nSyn = size(tempTraces,2);
+            yyaxis(app.UIAxesOverview, 'left');
+            area(app.UIAxesOverview, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
+            ylabel(app.UIAxesOverview, '% of synapses')
+            yyaxis(app.UIAxesOverview, 'right');
+            plot(app.UIAxesOverview, time, mean(tempTraces(:,newKeep),2), 'r');
+            ylabel(app.UIAxesOverview, 'iGluSnFR intensity (a.u.)')
+            box(app.UIAxesOverview, 'off');
+            app.UIAxesOverview.TickDir = 'out';
+        end
+        
+        function TableSelectedCell(app, event)
+            % First check if there is one or two colum selected
+            if size(event.Indices, 1    ) == 1
+                switch app.UITableAll.ColumnName{event.Indices(2)}
+                    case {'CellID', 'RecID'}
+                        % get the cell selected and show it
+                        selected = app.UITableAll.Data.cellID{event.Indices(1)};
+                        selIdx = matches(app.imgT.CellID, selected);
+                        cellIDs = app.imgT.ExperimentID{selIdx};
+                        app.List_CellID.Value = app.List_CellID.Items{matches(app.List_CellID.Items, cellIDs)};
+                        populateRecID(app);
+                        populateTable(app, event)
+                    otherwise
+                        togglePointer(app)
+                        % First make sure that the data is up to date
+                        quantifySpikes(app)
+                        cla(app.UIAxesBox);
+                        hold(app.UIAxesBox, 'on');
+                        vars = {'MeanFreq', 'MeanInt', 'TimeActive', 'TimeSync', 'MaxActiveSyn'};
+                        varX = vars{event.Indices(2)-2};
+                        dataBoxPlot(app, app.imgT{:,varX}, app.imgT.ConditionID, app.imgT.BatchID, varX)
+                        togglePointer(app)
+                end
+                
+            end
+        end
+        
+        function dataBoxPlot(app, varX, varG, varB, varLabel)
+            uniCond = categories(varG);
+            nCond = numel(uniCond);
+            cmap = lines;
+            batches = unique(varB);
+            nBatch = numel(batches);
+            for c = 1:nCond
+                condFltr = varG == uniCond(c);
+                tempY = sort(varX(condFltr));
+                quantY = quantile(tempY, [0.25 0.5 0.75]);
+                minW = quantY(1) - 1.5*(quantY(3)-quantY(1));
+                lowW = find(tempY>=minW,1,'first');
+                minW = tempY(lowW);
+                maxW = quantY(3) + 1.5*(quantY(3)-quantY(1));
+                highW = find(tempY<=maxW,1,'last');
+                maxW = tempY(highW);
+                % Boxplot
+                patch(app.UIAxesBox, [c-.25 c+.25 c+.25 c-.25], [quantY(1) quantY(1) quantY(3) quantY(3)], cmap(c,:), 'FaceAlpha', .3, 'EdgeColor', cmap(c,:));
+                plot(app.UIAxesBox, [c-.25 c+.25], [quantY(2) quantY(2)], 'color', cmap(c,:), 'LineWidth', 2);
+                plot(app.UIAxesBox, [c c], [minW quantY(1)], 'color', cmap(c,:));
+                plot(app.UIAxesBox, [c c], [quantY(3) maxW], 'color', cmap(c,:));
+                % Add the data points
+                x = linspace(c - 0.15, c + 0.15, nBatch);
+                for b = 1:nBatch
+                    batchFltr = varB == batches(b);
+                    if sum(batchFltr & condFltr) > 0
+                        plot(app.UIAxesBox, x(b), varX(batchFltr & condFltr), 'o', 'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 4, 'MarkerFaceColor', 'w')
+                    end
+                end
+            end
+            % Add the label
+            app.UIAxesBox.TickDir = 'out';
+            app.UIAxesBox.XLim = [.5 nCond+.5];
+            app.UIAxesBox.XTick = 1:nCond;
+            app.UIAxesBox.XTickLabel = uniCond;
+            app.UIAxesBox.XTickLabelRotation = 45;
+            ylabel(app.UIAxesBox, varLabel)
         end
     end
     
@@ -1015,10 +1258,10 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'off');
             app.FixYAxisButton = uibutton(app.MainTab, 'state', 'Text', 'Fix Y Axis', 'Position', [1450 338 100 22],...
                 'Enable', 'off', 'ValueChangedFcn', createCallbackFcn(app, @fixYAxis, false));
-            app.DetrendButton = uibutton(app.MainTab, 'state', 'Text', 'Detrend', 'Position', [1560 338 100 22],...
-                'Enable', 'off');
+            app.DetrendButton = uibutton(app.MainTab, 'push', 'Text', 'Detrend', 'Position', [1560 338 100 22],...
+                'Enable', 'off', 'ButtonPushedFcn', createCallbackFcn(app, @detrendData, false));
             app.ZoomInButton = uibutton(app.MainTab, 'state', 'Text', 'Zoom In', 'Position', [1670 338 100 22],...
-                'Enable', 'on', 'ValueChangedFcn', createCallbackFcn(app, @ZoomIn, false));
+                'Enable', 'on', 'ValueChangedFcn', createCallbackFcn(app, @ZoomIn, true));
             
             % Create Synapse navigation panel
             app.PrevButton = uibutton(app.MainTab, 'push', 'Text', 'Prev', 'Position', [1089 338 36 22],...
@@ -1071,7 +1314,7 @@ classdef GluTA < matlab.apps.AppBase
             app.DefaultButton = uibutton(app.DetectionOptionsPanel, 'push', 'Text', 'Default', 'Position', [102 10 75 22],...
                 'ButtonPushedFcn', createCallbackFcn(app, @DefaultButtonPushed, true));
             
-            % Create LoadOptionsPanel
+            % Create Load Options Panel
             app.LoadOptionsPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Load Options', 'Position', [11 207 177 255]);
             app.ImagingFrequencyLabel = uilabel(app.LoadOptionsPanel, 'Text', 'Frequency', 'Position', [4 204 63 22]);
             app.ImagingFrequencyEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 204 45 22], 'Value', app.Opt.ImgFrequency,...
@@ -1090,7 +1333,7 @@ classdef GluTA < matlab.apps.AppBase
             app.StimNumEdit = uieditfield(app.LoadOptionsPanel, 'numeric', 'Position', [98 23 45 22], 'Value', app.Opt.StimNum,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
 
-            % Create ROIDetectionPanel
+            % Create ROI Detection Panel
             app.ROIDetectionPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'ROI Detection', 'Position', [201 341 453 121]);
             app.ROISizeLabel = uilabel(app.ROIDetectionPanel, 'HorizontalAlignment', 'right', 'Position', [10 69 129 22], 'Text', 'Expected ROI size (px)');
             app.ROISizeEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [154 69 24 22], 'Value', app.Opt.RoiSize,...
@@ -1105,7 +1348,7 @@ classdef GluTA < matlab.apps.AppBase
             app.ProminenceROISigmaEdit = uieditfield(app.ROIDetectionPanel, 'numeric', 'Position', [417 32 24 22], 'Value', app.Opt.RoiProminenceSigma,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
 
-            % Create PeakDetectionPanel
+            % Create Peak Detection Panel
             app.PeakDetectionPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Peak Detection', 'Position', [201 162 453 159]);
             app.PeakThresholdMethodDropDownLabel = uilabel(app.PeakDetectionPanel, 'HorizontalAlignment', 'right', 'Position', [10 111 102 22], 'Text', 'Threshold method');
             app.PeakThresholdMethodDropDown = uidropdown(app.PeakDetectionPanel, 'Items', {'MAD', 'Rolling StDev'}, 'Position', [127 111 100 22], 'Value', app.Opt.PeakThreshold,...
@@ -1126,7 +1369,7 @@ classdef GluTA < matlab.apps.AppBase
             app.PeakMaxDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [390 41 50 22], 'Value', app.Opt.PeakMaxDuration,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             
-            % Create PeakDetectionPanel
+            % Create Detrend Options Panel
             app.DetrendOptionsPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Detrend options', 'Position', [12 48 176 140]);
             app.MethodDropDownLabel = uilabel(app.DetrendOptionsPanel, 'Position', [10 88 56 22], 'Text', 'Method');
             app.MethodDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'None', 'Moving median', 'Erosion', 'Polynomial'}, 'Position', [80 88 87 22], 'Value', app.Opt.Detrending,...
@@ -1136,9 +1379,9 @@ classdef GluTA < matlab.apps.AppBase
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.VisualizeDropDownLabel = uilabel(app.DetrendOptionsPanel, 'Position', [8 19 56 22], 'Text', 'Visualize');
             app.VisualizeDropDown = uidropdown(app.DetrendOptionsPanel, 'Items', {'Raw', 'Gradient', 'Smooth'}, 'Position', [78 19 87 22], 'Value', app.Opt.DetectTrace,...
-                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
+                'ValueChangedFcn', createCallbackFcn(app, @updatePlot, false));
 
-            % Create StimulationProtocolPanel
+            % Create Stimulation Protocol Panel
             app.StimulationProtocolPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Stimulation protocol', 'Position', [202 5 452 144]);
             app.MergedRecordingsCheckBox = uicheckbox(app.StimulationProtocolPanel, 'Text', 'Merged recordings', 'Position', [179 59 144 22]);
             app.BaselineSecLabel = uilabel(app.StimulationProtocolPanel, 'Position', [184 93 95 22], 'Text', 'Baseline time (s)');
@@ -1152,28 +1395,43 @@ classdef GluTA < matlab.apps.AppBase
             app.TrainsIDsLabel = uilabel(app.StimulationProtocolPanel, 'Position', [8 93 52 22], 'Text', 'Identifier');
             app.TrainsIDsEdit = uieditfield(app.StimulationProtocolPanel, 'text', 'Position', [102 93 45 22], 'Value', '5Hz');
             
-            % Create UITable
-            app.UITable = uitable(app.TableTab, 'ColumnName', {'Synapse #'; 'Mean Int'; 'Freq'; 'Keep'}, 'RowName', {}, 'Position', [25 12 381 888],...
+            % Create UITableSingle
+            app.UITableSingle = uitable(app.TableTab, 'ColumnName', {'Synapse #'; 'Mean Int'; 'Freq'; 'Keep'}, 'RowName', {}, 'Position', [25 12 381 888],...
                 'ColumnEditable', [false false false true], 'DisplayDataChangedFcn', createCallbackFcn(app, @updateRaster, true));
 
+            % Create the context menu for the table
+            app.TableMenu = uicontextmenu(app.UIFigure);
+            app.FilterTable = uimenu(app.TableMenu, 'Text', 'Filter');
+            app.FilterIntensity = uimenu(app.FilterTable, 'Text', 'Mean Intensity', 'MenuSelectedFcn', createCallbackFcn(app, @TableFilterSelected, true));
+            app.FilterFrequency = uimenu(app.FilterTable, 'Text', 'Mean Frequency', 'MenuSelectedFcn', createCallbackFcn(app, @TableFilterSelected, true));
+            app.UITableSingle.ContextMenu = app.TableMenu;
+            
             % Create UIAxesRaster
-            app.UIAxesRaster = uiaxes(app.TableTab);
-            title(app.UIAxesRaster, 'Title')
+            app.UIAxesRaster = uiaxes(app.TableTab, 'Position', [433 338 731 562], 'ButtonDownFcn', createCallbackFcn(app, @RasterClicked, true));
+            title(app.UIAxesRaster, 'Title'); xlabel(app.UIAxesRaster, 'Time (s)'); ylabel(app.UIAxesRaster, 'Synapse #');
+            app.UIAxesRaster.Toolbar.Visible = 'off';
+
+            % Create UIAxesOverview
+            app.UIAxesOverview = uiaxes(app.TableTab, 'Position', [433 12 726 289]);
+            title(app.UIAxesRaster, '')
             xlabel(app.UIAxesRaster, 'Time (s)')
             ylabel(app.UIAxesRaster, 'Synapse #')
-            app.UIAxesRaster.Position = [433 338 731 562];
 
-            % Create UIAxes4
-            app.UIAxes4 = uiaxes(app.TableTab);
-            title(app.UIAxes4, 'Title')
-            xlabel(app.UIAxes4, 'X')
-            ylabel(app.UIAxes4, 'Y')
-            app.UIAxes4.Position = [433 12 726 289];
+            % Create the Zoom, Reset, and Export functions
+            app.ZoomRasterButton = uibutton(app.TableTab, 'state', 'Text', 'Zoom', 'Position', [438 309 100 22],...
+                'Enable', 'on', 'ValueChangedFcn', createCallbackFcn(app, @ZoomIn, true));
+            app.ResetRasterButton = uibutton(app.TableTab, 'push', 'Text', 'Reset', 'Position', [549 309 100 22],...
+                'Enable', 'on', 'ButtonPushedFcn', createCallbackFcn(app, @ResetRaster, false));
+            app.ExportRasterButton = uibutton(app.TableTab, 'push', 'Text', 'Export', 'Position', [667 309 100 22],...
+                'Enable', 'on', 'ButtonPushedFcn', createCallbackFcn(app, @ExportPlot, true));
             
+            % Create a table to store all the cells info
+            app.UITableAll = uitable(app.TableTab, 'ColumnName', {'CellID'; 'RecID'; 'Frequency'; 'Intensity'; 'Active'; 'Synchronous'; 'Max active'}, 'RowName', {}, 'Position', [1210 12 650 289],...
+                'CellSelectionCallback', createCallbackFcn(app, @TableSelectedCell, true));
             
-            % Create the visual components of the table tab
-
-            
+            % Create the axis to store the overview of the data
+            app.UIAxesBox = uiaxes(app.TableTab, 'Position', [1300 340 560 560]);
+            title(app.UIAxesBox, ''); xlabel(app.UIAxesBox, ''); ylabel(app.UIAxesBox, '');
             
             
             movegui(app.UIFigure, 'center');
@@ -1278,3 +1536,4 @@ classdef GluTA < matlab.apps.AppBase
     end
 end
 
+                                                
