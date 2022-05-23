@@ -258,7 +258,7 @@ classdef GluTA < matlab.apps.AppBase
                     peakLoc{cells} = synLoc;
                     peakInt{cells} = synInt;
                     peakProm{cells} = synProm;
-                    keepSyn{cells} = cellfun(@numel, synLoc) / (length(tempData)/Fs) > 0.3;
+                    keepSyn{cells} = cellfun(@numel, synLoc) / (length(tempData)/Fs) > 0;
                     % Calculate the synchronous peaks (based on the minimum distance)
                     syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells});
                 end
@@ -445,6 +445,9 @@ classdef GluTA < matlab.apps.AppBase
         end
         
         function FileMenuOpenSelected(app, event)
+            if app.Opt.LastPath == 0
+                app.Opt.LastPath = pwd;
+            end
             [fileName, filePath] = uigetfile(app.Opt.LastPath, 'Select Analysis File');
             togglePointer(app)
             figure(app.UIFigure);
@@ -778,7 +781,8 @@ classdef GluTA < matlab.apps.AppBase
     % Housekeeping methods
     methods (Access = public)
         function togglePointer(app)
-            if strcmp(app.UIFigure.Pointer, 'arrow')
+            pointer = app.UIFigure.Pointer;
+            if strcmp(pointer, 'arrow')
                 app.UIFigure.Pointer = 'watch';
             else
                 app.UIFigure.Pointer = 'arrow';
@@ -1144,9 +1148,13 @@ classdef GluTA < matlab.apps.AppBase
                     otherwise
                         togglePointer(app)
                         % First make sure that the data is up to date
-                        quantifySpikes(app)
-                        populateCellTable(app)
+%                         quantifySpikes(app)
+%                         populateCellTable(app)
                         cla(app.UIAxesBox);
+                        reset(app.UIAxesBox);
+                        if ~isempty(app.UIAxesBox.Legend)
+                            app.UIAxesBox.Legend.Visible = 'off';
+                        end
                         hold(app.UIAxesBox, 'on');
                         vars = {'MeanFreq', 'MeanInt', 'TimeActive', 'TimeSync', 'MaxActiveSyn'};
                         varX = vars{event.Indices(2)-2};
@@ -1157,6 +1165,9 @@ classdef GluTA < matlab.apps.AppBase
                 % Scatter plot of the data
                 cla(app.UIAxesBox);
                 reset(app.UIAxesBox);
+                if ~isempty(app.UIAxesBox.Legend)
+                    app.UIAxesBox.Legend.Visible = 'off';
+                end
                 hold(app.UIAxesBox, 'on');
                 
                 vars = {'MeanFreq', 'MeanInt', 'TimeActive', 'TimeSync', 'MaxActiveSyn'};
@@ -1165,13 +1176,56 @@ classdef GluTA < matlab.apps.AppBase
                 
                 uniCond = categories(app.imgT.ConditionID);
                 nCond = numel(uniCond);
-                cmap = lines;
+                cmap = getColormap(app);
+                l = 1;
                 for c = 1:nCond
-                    condFltr = app.imgT.ConditionID == uniCond(c);
-                    plot(app.UIAxesBox, app.imgT{condFltr,varX}, app.imgT{condFltr,varY}, 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerEdgeColor', cmap(c,:))
+                    if any(c==[1 4 7])
+                        condFltr = app.imgT.ConditionID == uniCond(c);
+                        hLeg(l) = plot(app.UIAxesBox, app.imgT{condFltr,varX}, app.imgT{condFltr,varY}, 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerEdgeColor', cmap(c,:));
+                        l=l+1;
+                    end
                 end
+                legend(hLeg, uniCond([1 4 7]), 'Box', 'off')
                 xlabel(app.UIAxesBox, varX)
                 ylabel(app.UIAxesBox, varY)
+            else
+                cla(app.UIAxesBox);
+                reset(app.UIAxesBox);
+                if ~isempty(app.UIAxesBox.Legend)
+                    app.UIAxesBox.Legend.Visible = 'off';
+                end
+                hold(app.UIAxesBox, 'on');
+                % The X axis is the percentage of cell that are active at the same time
+                fillX = [1:100 100:-1:1];
+                % The Y axis if the time that a cell spend active with that amount of synapses
+                netData = cell2mat(app.imgT.PeakSync')';
+                nFrames = size(netData,2);
+                synKeep = cellfun(@sum, app.imgT.KeepSyn);
+                uniCond = categories(app.imgT.ConditionID);
+                nCond = numel(uniCond);
+                cmap = getColormap(app);
+                l=1;
+                for c = 1:nCond
+                    tempMean = zeros(1,100);
+                    tempSEM = zeros(1,100);
+                    for p = 1:100
+                        condFltr = app.imgT.ConditionID == uniCond(c);
+                        tempData = sum(netData(condFltr,:) >= (synKeep(condFltr,:) * p/100), 2) / nFrames * 100;
+                        tempMean(p) = mean(tempData);
+                        tempSEM(p) = std(tempData) / sqrt(sum(condFltr));
+                    end
+                    if any(c==[1 4 7])
+                        fillY = [tempMean-tempSEM fliplr(tempMean+tempSEM)];
+                        fill(app.UIAxesBox, fillX, fillY, cmap(c,:), 'EdgeColor', 'none', 'FaceAlpha', .3);
+                        hLeg(l) = plot(app.UIAxesBox, 1:100, tempMean, 'Color', cmap(c,:));
+                        l=l+1;
+                    end
+                end
+                legend(hLeg, uniCond([1 4 7]), 'Box', 'off')
+                app.UIAxesBox.XLim = [0 100];
+                app.UIAxesBox.YLim = [0 app.UIAxesBox.YLim(2)];
+                xlabel(app.UIAxesBox, '% of active synapses');
+                ylabel(app.UIAxesBox, '% of time');
             end
         end
         
@@ -1195,7 +1249,8 @@ classdef GluTA < matlab.apps.AppBase
         function dataBoxPlot(app, varX, varG, varB, varLabel)
             uniCond = categories(varG);
             nCond = numel(uniCond);
-            cmap = lines;
+            cmap = getColormap(app);
+            varB = categorical(varB);
             batches = unique(varB);
             nBatch = numel(batches);
             for c = 1:nCond
@@ -1232,6 +1287,16 @@ classdef GluTA < matlab.apps.AppBase
         end
         
         function ResetRaster(app)
+        end
+        
+        function cmap = getColormap(app)
+            cmap1 = {'#000000', '#4D4D4D', '#8C8C8C',...
+                '#9100AD', '#9B00BA', '#D000FA',...
+                '#61AD00', '#69BA00', '#8EFA00'};
+            cmap = nan(length(cmap1), 3);
+            for c = 1:length(cmap1)
+                cmap(c,:) = sscanf(cmap1{c}(2:end),'%2x%2x%2x',[1 3])/255;
+            end
         end
     end
     
