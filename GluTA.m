@@ -13,6 +13,8 @@ classdef GluTA < matlab.apps.AppBase
         FileMenuSave
         FileMenuExport
         FileMenuLabelCondition
+        OptionMenu
+        OptionMenuDebug
         TabGroup
         MainTab
         UIAxesMovie
@@ -125,6 +127,7 @@ classdef GluTA < matlab.apps.AppBase
         curTime % a line for the current position on the plot
         yLim % Y axis limits for plotting single synapses
         selectedTableCell
+        newChange = false; % boolean value to store if there is a major change in the data
     end
     
     % User properties
@@ -136,6 +139,7 @@ classdef GluTA < matlab.apps.AppBase
                     15 157 88;...       % Google GREEN
                     66 133 244;...      % Google BLUE
                     244 180 0] / 255;	% Google YELLOW
+        tempAddPeak = []; % Array to store the temporaney peaks with manual detection
     end
     
     % Interaction methods
@@ -166,13 +170,13 @@ classdef GluTA < matlab.apps.AppBase
                     hold(app.UIAxesPlot, 'on')
                     synN = app.TextSynNumber.Value;
                     synThr = calculateThreshold(app, tempData, synN);
-                    plot(app.UIAxesPlot, time, tempData(:,synN), 'Color', 'k');
-                    plot(app.UIAxesPlot, time, synThr, '--', 'Color', [.5 .5 .5]);
+                    plot(app.UIAxesPlot, time, tempData(:,synN), 'Color', 'k', 'HitTest', 'off', 'ButtonDownFcn', '');
+                    plot(app.UIAxesPlot, time, synThr, '--', 'Color', [.5 .5 .5], 'HitTest', 'off', 'ButtonDownFcn', '');
                     if any(strcmp(app.imgT.Properties.VariableNames, 'PeakLoc'))
                         if ~isempty(app.imgT.PeakLoc{app.currCell})
                             tempLocs = app.imgT.PeakLoc{app.currCell}{synN};
                             tempInts = app.imgT.PeakInt{app.currCell}{synN};
-                            plot(app.UIAxesPlot, (tempLocs-1) / Fs, tempInts, 'or');
+                            plot(app.UIAxesPlot, (tempLocs-1) / Fs, tempInts, 'or', 'HitTest', 'off', 'ButtonDownFcn', '');
                         end
                     end
                     if app.FixYAxisButton.Value
@@ -226,6 +230,12 @@ classdef GluTA < matlab.apps.AppBase
                 app.TextSynNumber.Value = currentSyn+1;
             end
             updatePlot(app);
+            if app.ZoomInButton.Value
+                app.UIAxesPlot.XLimMode = 'auto';
+                oldXAxis = app.UIAxesPlot.XLim;
+                newXAxis = [oldXAxis(1), oldXAxis(end)/10];
+                app.UIAxesPlot.XLim = newXAxis;
+            end
         end
         
         function DetectPeaksButtonPressed(app)
@@ -289,6 +299,7 @@ classdef GluTA < matlab.apps.AppBase
                 app.AddPeaksButton.Enable = 'on';
                 app.DeletePeaksButton.Enable = 'on';
                 app.KeepCellToggle.Enable = 'on';
+                app.newChange = true;
             catch ME
                 sprintf('Error in cell %s at synapse %d.', app.imgT.CellID{c}, s)
                 disp(ME)
@@ -303,29 +314,52 @@ classdef GluTA < matlab.apps.AppBase
             tempData = app.imgT.DetrendData{app.currCell}(:,synN);
             Fs = app.imgT.Fs(app.currCell);
             % Get the info about the other spikes
-            allLoc = app.imgT.PeakLoc{app.currCell}{synN};
-            allInt = app.imgT.PeakInt{app.currCell}{synN};
+            if isempty(app.tempAddPeak)
+                allLoc = app.imgT.PeakLoc{app.currCell}{synN};
+                allInt = app.imgT.PeakInt{app.currCell}{synN};
+                allProm = app.imgT.PeakProm{app.currCell}{synN};
+                allSNR = app.imgT.PeakSNR{app.currCell}{synN};
+            else
+                allLoc = app.tempAddPeak.Loc;
+                allInt = app.tempAddPeak.Int;
+                allProm = app.tempAddPeak.Prom;
+                allSNR = app.tempAddPeak.SNR;
+            end
             % Define the searching area
-            searchLim = app.PeakMinDistanceEdit.Value + app.PeakMinDurationEdit.Value;
             tempPoint = round(clickedPoint*Fs);
-            searchArea = tempPoint-searchLim:tempPoint+searchLim;
+            searchLim = app.PeakMinDistanceEdit.Value + round((app.PeakMinDurationEdit.Value+app.PeakMaxDurationEdit.Value) / 2);
+            searchLim = [tempPoint-searchLim tempPoint+searchLim];
+            peakLim1 = allLoc(find(allLoc<tempPoint,1,'last'))+1;
+            peakLim2 = allLoc(find(allLoc>tempPoint,1,'first'))-1;
+            if isempty(peakLim2)
+                peakLim2 = numel(tempData);
+            end
+            searchArea = max(peakLim1, searchLim(1)):min(peakLim2, searchLim(end));
             % Find the maxima of this area
-            [newInt, newLoc] = findpeaks(tempData(searchArea));
+            [newInt, newLoc, ~, newProm] = findpeaks(tempData(searchArea));
             [newInt, newFltr] = max(newInt);
             newLoc = newLoc(newFltr) + searchArea(1) -1;
+            newProm = newProm(newFltr);
+            newSNR = newInt / median(tempData);
             % Check if there are other spikes in this area
             if any(allLoc >= searchArea(1) & allLoc <= searchArea(end))
                 errordlg('Peak already detected in this area', 'No more peaks');
             else
                 % Show the new point
-                plot(app.UIAxesPlot, (newLoc-1)/Fs, newInt, 'or');
+                plot(app.UIAxesPlot, (newLoc-1)/Fs, newInt, 'ob');
                 % Add the new peak to the table
                 allLoc = [allLoc; newLoc];
                 allInt = [allInt; newInt];
+                allProm = [allProm; newProm];
+                allSNR = [allSNR; newSNR];
                 [allLoc, sortIdx] = sort(allLoc);
                 allInt = allInt(sortIdx);
-                app.imgT.PeakLoc{app.currCell}{synN} = allLoc;
-                app.imgT.PeakInt{app.currCell}{synN} = allInt;
+                allProm = allProm(sortIdx);
+                allSNR = allSNR(sortIdx);
+                app.tempAddPeak.Loc = allLoc;
+                app.tempAddPeak.Int = allInt;
+                app.tempAddPeak.Prom = allProm;
+                app.tempAddPeak.SNR = allSNR;
             end
         end
         
@@ -356,6 +390,7 @@ classdef GluTA < matlab.apps.AppBase
             end
             app.imgT.PeakLoc{app.currCell}{synN} = allLoc;
             app.imgT.PeakInt{app.currCell}{synN} = allInt;
+            app.newChange = true;
         end
         
         function TableFilterSelected(app, event)
@@ -380,6 +415,7 @@ classdef GluTA < matlab.apps.AppBase
             app.imgT.KeepSyn{app.currCell} = tempKeep;
             app.UITableSingle.Data.synKeep = tempKeep;
             updateRaster(app);
+            app.newChange = true;
         end
     end
     
@@ -439,6 +475,7 @@ classdef GluTA < matlab.apps.AppBase
                     % Show that we are done
                     delete(hWait);
                     togglePointer(app);
+                    app.newChange = true;
                 end
             catch ME
                 delete(hWait);
@@ -463,6 +500,7 @@ classdef GluTA < matlab.apps.AppBase
             save(savePath, 'imgT', 'opt', 'ui');
             cd(oldDir)
             togglePointer(app);
+            app.newChange = false;
         end
         
         function FileMenuOpenSelected(app, event)
@@ -517,11 +555,18 @@ classdef GluTA < matlab.apps.AppBase
                     app.DeletePeaksButton.Enable = 'on';
                     app.KeepCellToggle.Enable = 'on';
                 end
+                app.newChange = true;
             catch ME
                 togglePointer(app);
                 disp(ME)
                 errordlg('Failed to load the data. Please check command window for details', 'Loading failed');
             end
+        end
+        
+        function OptionMenuDebugSelected(app)
+            disp(['You are now in debug mode. To exit the debug use "dbquit".',...
+                ' Use "dbcont" to continue with the changes made'])
+            keyboard
         end
         
         function SaveButtonPushed(app, event)
@@ -685,6 +730,7 @@ classdef GluTA < matlab.apps.AppBase
             app.imgT.RawData = rawData;
             app.imgT.FF0Data = ff0Data;
             app.imgT.DetrendData = detData;
+            app.imgT.KeepCell = true(height(app.imgT));
             updatePlot(app)
             app.AllFOVsRadio.Enable = 'on';
             app.CurrentListRadio.Enable = 'on';
@@ -695,6 +741,7 @@ classdef GluTA < matlab.apps.AppBase
             app.DetrendButton.Enable = 'on';
             app.DetectPeaksButton.Enable = 'on';
             app.MeasureROIsButton.Enable = 'off';
+            app.newChange = true;
         end
         
         function switchPlotType(app)
@@ -759,48 +806,60 @@ classdef GluTA < matlab.apps.AppBase
         end
         
         function keyPressed(app, event)
-            switch event.Key
-                case "a" % Add new peaks
-                    app.AddPeaksButton.Value = true;
-                    crosshairCursor(app, event);
-                case "d" % Delete peaks
-                    app.DeletePeaksButton.Value = true;
-                    crosshairCursor(app, event);
-                case "rightarrow" % move to next synapse
-                    if app.SingleTracesRadio.Value
-                        nextButtonPressed(app)
-                    end
-                case "leftarrow" % move to previous synapse
-                    if app.SingleTracesRadio.Value
-                        prevButtonPressed(app)
-                    end
-                case "downarrow" % move to next cell
-                    thisCell = find(matches(app.List_CellID.Items, app.List_CellID.Value));
-                    nCells = numel(app.List_CellID.Items);
-                    if thisCell < nCells
-                        app.List_CellID.Value = app.List_CellID.Items{thisCell + 1};
-                    else
-                        app.List_CellID.Value = app.List_CellID.Items{1};
-                    end
-                    scroll(app.List_CellID, app.List_CellID.Value);
-                    populateRecID(app);
-                    populateTable(app, event)
-                case "uparrow" % move to next cell
-                    thisCell = find(matches(app.List_CellID.Items, app.List_CellID.Value));
-                    nCells = numel(app.List_CellID.Items);
-                    if thisCell > 1
-                        app.List_CellID.Value = app.List_CellID.Items{thisCell - 1};
-                    else
-                        app.List_CellID.Value = app.List_CellID.Items{nCells};
-                    end
-                    scroll(app.List_CellID, app.List_CellID.Value);
-                    populateRecID(app);
-                    populateTable(app, event)
-                case "z"
-                    app.ZoomInButton.Value = ~app.ZoomInButton.Value;
-                    ZoomIn(app);
-                case "space"
-                    keepCell(app);
+            if strcmpi(event.Modifier, 'control')
+                switch event.Key
+                    case "z"
+                        if app.AddPeaksButton.Value
+                            app.tempAddPeak.Loc = app.tempAddPeak.Loc(1:end-1);
+                            app.tempAddPeak.Int = app.tempAddPeak.Int(1:end-1);
+                            delete(app.UIAxesPlot.Children(1));
+                        end
+                end
+            else
+                switch event.Key
+                    case "a" % Add new peaks
+                        app.AddPeaksButton.Value = true;
+                        crosshairCursor(app, event);
+                    case "d" % Delete peaks
+                        app.DeletePeaksButton.Value = true;
+                        crosshairCursor(app, event);
+                    case "rightarrow" % move to next synapse
+                        if app.SingleTracesRadio.Value
+                            nextButtonPressed(app)
+                        end
+                    case "leftarrow" % move to previous synapse
+                        if app.SingleTracesRadio.Value
+                            prevButtonPressed(app)
+                        end
+                    case "downarrow" % move to next cell
+                        thisCell = find(matches(app.List_CellID.Items, app.List_CellID.Value));
+                        nCells = numel(app.List_CellID.Items);
+                        if thisCell < nCells
+                            app.List_CellID.Value = app.List_CellID.Items{thisCell + 1};
+                        else
+                            app.List_CellID.Value = app.List_CellID.Items{1};
+                        end
+                        scroll(app.List_CellID, app.List_CellID.Value);
+                        populateRecID(app);
+                        populateTable(app, event)
+                    case "uparrow" % move to next cell
+                        thisCell = find(matches(app.List_CellID.Items, app.List_CellID.Value));
+                        nCells = numel(app.List_CellID.Items);
+                        if thisCell > 1
+                            app.List_CellID.Value = app.List_CellID.Items{thisCell - 1};
+                        else
+                            app.List_CellID.Value = app.List_CellID.Items{nCells};
+                        end
+                        scroll(app.List_CellID, app.List_CellID.Value);
+                        populateRecID(app);
+                        populateTable(app, event)
+                    case "z"
+                        app.ZoomInButton.Value = ~app.ZoomInButton.Value;
+                        var.Source.Text = 'Zoom In';
+                        ZoomIn(app, var);
+                    case "space"
+                        keepCell(app);
+                end
             end
         end
         
@@ -818,6 +877,7 @@ classdef GluTA < matlab.apps.AppBase
                 togglePointer(app)
             end
             figure(app.UIFigure);
+            app.newChange = true;
         end
     end
     
@@ -932,7 +992,7 @@ classdef GluTA < matlab.apps.AppBase
                 app.SliderMovie.MinorTicks = [];
                 app.SliderMovie.MajorTicks = linspace(1,nImages,20);
                 app.SliderMovie.MajorTickLabels = categorical(round(linspace(1,nImages,20) / Fs));
-                s = imshow(app.movieData(:,:,1), 'Parent', app.UIAxesMovie);
+                s = image(app.movieData(:,:,1), 'Parent', app.UIAxesMovie);
                 app.currSlice = s;
                 hold(app.UIAxesPlot, 'on');
                 hTime = plot(app.UIAxesPlot, zeros(2,1), app.UIAxesPlot.YLim, 'b');
@@ -1041,6 +1101,16 @@ classdef GluTA < matlab.apps.AppBase
                 app.AddPeaksButton.Value = false;
                 app.DeletePeaksButton.Value = false;
             end
+            if ~app.AddPeaksButton.Value
+                if ~isempty(app.tempAddPeak)
+                    synN = app.TextSynNumber.Value;
+                    [app.imgT.PeakLoc{app.currCell}{synN}, sortIdx] = sort(app.tempAddPeak.Loc);
+                    app.imgT.PeakInt{app.currCell}{synN} = app.tempAddPeak.Int(sortIdx);
+                    app.imgT.PeakProm{app.currCell}{synN} = app.tempAddPeak.Prom(sortIdx);
+                    app.imgT.PeakSNR{app.currCell}{synN} = app.tempAddPeak.SNR(sortIdx);
+                    app.tempAddPeak = [];
+                end
+            end
             drawnow();
             updatePlot(app);
         end
@@ -1068,12 +1138,23 @@ classdef GluTA < matlab.apps.AppBase
                     app.imgT.MaxActiveSyn(c) = (max(tempData) ./ nSyn * 100);
                     app.imgT.TimeActive(c) = sum(tempData > 1) / nFrames * 100;
                     app.imgT.TimeSync(c) = sum(tempData > nSyn *.1) / nFrames * 100;
+                    [netInt, netLoc] = findpeaks(tempData, 'MinPeakHeight', 0.1*nSyn);
+                    app.imgT.NetworkActive{c} = netLoc;
+                    app.imgT.NetworkSynapses{c} = netInt;
+                    traceData = mean(app.imgT.DetrendData{c}(:,synKeep),2);
+                    smoothTrace = smoothdata(traceData);
+                    [smoothInt, smoothLoc] = findpeaks(smoothTrace, 'MinPeakProminence', std(smoothTrace));
+                    app.imgT.NetworkFrequency{c} = [numel(netLoc) numel(smoothLoc)] / (nFrames/Fs);
                 else
                     app.imgT.MaxActiveSyn(c) = 0;
                     app.imgT.TimeActive(c) = 0;
                     app.imgT.TimeSync(c) = 0;
+                    app.imgT.NetworkActive{c} = 0;
+                    app.imgT.NetworkSynapses{c} = 0;
+                    app.imgT.NetworkFrequency{c} = [0 0];
                 end
             end
+            app.newChange = true;
             catch
                 disp(c)
             end
@@ -1091,15 +1172,14 @@ classdef GluTA < matlab.apps.AppBase
                 synN = (1:nSyn)';
                 synInt = cellfun(@mean, app.imgT.PeakProm{app.currCell});
                 synFreq = cellfun(@numel, app.imgT.PeakInt{app.currCell}) / (nFrames/Fs);
-                % Calculate the SNR of the detected spikes
-                medTrace = median(app.imgT.DetrendData{app.currCell})';
-                snr = synInt ./ medTrace;
+                snr = cellfun(@mean, app.imgT.PeakSNR{app.currCell});
                 synKeep = app.imgT.KeepSyn{app.currCell};
                 app.UITableSingle.Data = table(synN, synInt, synFreq, snr, synKeep);
                 app.UITableSingle.ColumnEditable = [false, false, false, false, true];
                 plotRaster(app, tempTraces);
                 % Populate the table for all the cells
                 populateCellTable(app)
+                app.newChange = true;
             else
                 % Clear the table and the axis
                 cla(app.UIAxesRaster, 'reset');
@@ -1117,10 +1197,11 @@ classdef GluTA < matlab.apps.AppBase
             cellFreq = app.imgT{dataFltr, 'MeanFreq'};
             cellInt = app.imgT{dataFltr, 'MeanInt'};
             cellProm = app.imgT{dataFltr, 'MeanProm'};
+            netFreq = cell2mat(app.imgT{dataFltr, 'NetworkFrequency'});
             cellActive = app.imgT{dataFltr, 'TimeActive'};
             cellSync = app.imgT{dataFltr, 'TimeSync'};
             cellMax = app.imgT{dataFltr, 'MaxActiveSyn'};
-            app.UITableAll.Data = table(cellID, recID, cellKeep, cellFreq, cellInt, cellProm, cellActive, cellSync, cellMax);
+            app.UITableAll.Data = table(cellID, recID, cellKeep, cellFreq, cellInt, cellProm, netFreq(:,2), cellActive, cellSync, cellMax);
         end
         
         function plotRaster(app, tempTraces)
@@ -1263,10 +1344,14 @@ classdef GluTA < matlab.apps.AppBase
                                 app.UIAxesBox.Legend.Visible = 'off';
                             end
                             hold(app.UIAxesBox, 'on');
-                            vars = {'KeepCell', 'MeanFreq', 'MeanInt', 'MeanProm', 'TimeActive', 'TimeSync', 'MaxActiveSyn'};
-                            varX = vars{app.selectedTableCell(2)-2};
+                            vars = app.UITableAll.ColumnName;
                             keepFltr = app.UITableAll.Data.cellKeep;
-                            dataBoxPlot(app, app.imgT{keepFltr,varX}, app.imgT{keepFltr,'ConditionID'}, app.imgT{keepFltr,'BatchID'}, varX)
+                            varX = app.UITableAll.Data{keepFltr, app.selectedTableCell(2)};
+                            varG = app.UITableAll.Data{keepFltr, 'recID'};
+                            varB = app.UITableAll.Data{keepFltr, 'cellID'};
+                            varB = cellfun(@(x) regexp(x, '_', 'split'), varB, 'UniformOutput', false);
+                            varB = cellfun(@(x) x(1), varB);
+                            dataBoxPlot(app, varX, varG, varB, vars{app.selectedTableCell(2)})
 %                             app.UIAxesBox.YLim = [0 .1];
                     end
                 elseif size(app.selectedTableCell, 1) == 2
@@ -1294,7 +1379,7 @@ classdef GluTA < matlab.apps.AppBase
                             l=l+1;
                         end
                     end
-                    legend(hLeg, uniCond([1 4 7]), 'Box', 'off')
+                    legend(hLeg, uniCond([1 4 7]), 'Location', 'best')
                     xlabel(app.UIAxesBox, app.UITableAll.ColumnName(app.selectedTableCell(1,2)))
                     ylabel(app.UIAxesBox, app.UITableAll.ColumnName(app.selectedTableCell(2,2)))
                 else
@@ -1424,7 +1509,7 @@ classdef GluTA < matlab.apps.AppBase
                 'Position', [100 100 1895 942],...
                 'Name', 'GluTA: iGluSnFR Trace Analyzer', 'ToolBar', 'none', 'MenuBar', 'none',...
                 'NumberTitle', 'off', 'WindowScrollWheelFcn', @(~,event)SliderMovieMoved(app, event),...
-                'KeyPressFcn', @(~,event)keyPressed(app, event));
+                'KeyReleaseFcn', @(~,event)keyPressed(app, event));
             
             % Create the menu bar: file options
             app.FileMenu = uimenu(app.UIFigure, 'Text', '&File');
@@ -1439,6 +1524,9 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'off');
             app.FileMenuLabelCondition = uimenu(app.FileMenu, 'Text', 'Label condition',...
                 'MenuSelectedFcn', createCallbackFcn(app, @FileLabelConditionSelected, true), 'Separator', 'on');
+            app.OptionMenu = uimenu(app.UIFigure, 'Text', '&Option');
+            app.OptionMenuDebug = uimenu(app.OptionMenu, 'Text', '&Debug',...
+                'Accelerator', 'D', 'MenuSelectedFcn', createCallbackFcn(app, @OptionMenuDebugSelected, false));
             
             % Define multiple tabs where to store the UI
             app.TabGroup = uitabgroup(app.UIFigure, 'Position', [2 3 1894 940], 'SelectionChangedFcn', createCallbackFcn(app, @populateTable, true));
@@ -1637,7 +1725,7 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'on', 'ButtonPushedFcn', createCallbackFcn(app, @ExportPlot, true));
             
             % Create a table to store all the cells info
-            app.UITableAll = uitable(app.TableTab, 'ColumnName', {'Cell'; 'Condition'; 'Keep'; 'Frequency'; 'Intensity'; 'Prominence'; 'Active'; 'Synchronous'; 'Max active'},...
+            app.UITableAll = uitable(app.TableTab, 'ColumnName', {'Cell'; 'Condition'; 'Keep'; 'Frequency'; 'Intensity'; 'Prominence'; 'Network Frequency'; 'Active'; 'Synchronous'; 'Max active'},...
                 'RowName', {}, 'Position', [1210 12 650 289],...
                 'CellSelectionCallback', createCallbackFcn(app, @TableClicked, true),...
                 'KeyReleaseFcn', createCallbackFcn(app, @TableSelectedCell, true));
@@ -1744,9 +1832,21 @@ classdef GluTA < matlab.apps.AppBase
         
         function delete(app)
             saveSettings(app)
+            if app.newChange
+                % If the data is not saved, ask if it needs to be saved
+                answer = questdlg('Do you want to save the data?', 'Save before closing');
+                switch answer
+                    case 'Yes'
+                        FileMenuSaveSelected(app);
+                    case 'No'
+                        % Nothing to add
+                    case 'Cancel'
+                        return
+                end
+            end
             delete(app.UIFigure);
         end
     end
 end
 
-                                                
+                             
