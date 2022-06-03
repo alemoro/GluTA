@@ -880,7 +880,7 @@ classdef GluTA < matlab.apps.AppBase
                     aOverview = axes(hOverview);
                     plotRaster(app, tempTraces, aRaster, aOverview);
                 case 'Export trace'
-                    hTrace = figure('Name', 'Trace', 'NumberTitle', 'off', 'Color', 'white');
+                    hTrace = figure('Name', 'Trace', 'NumberTitle', 'off', 'Color', 'white', 'Position', [870 12 990 327]);
                     aTrace = axes(hTrace);
                     updatePlot(app, aTrace);
                     aTrace.TickDir = 'out';
@@ -1364,7 +1364,7 @@ classdef GluTA < matlab.apps.AppBase
                                     tempData(b,1) = sum(app.imgT{condFltr & batchFltr, 'KeepCell'}) / sum(condFltr & batchFltr);
                                 end
                                 plot(plotAx, x, tempData, 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerSize', 8, 'MarkerEdgeColor', 'none', 'HitTest', 'off', 'ButtonDownFcn', '')
-                                plot(plotAx, x, ones(1,3)*mean(tempData), 'Color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '')
+                                plot(plotAx, x, ones(1,nBatch)*mean(tempData), 'Color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '')
                                 plot(plotAx, [c c], [mean(tempData)-std(tempData) mean(tempData)+std(tempData)], 'Color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '')
                             end
                             % Add the label
