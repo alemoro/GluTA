@@ -117,6 +117,8 @@ classdef GluTA < matlab.apps.AppBase
         ExportRasterButton
         UITableAll
         UIAxesBox
+        FigureMenu
+        BoxMenu
     end
     
     % Housekeeping properties
@@ -144,9 +146,14 @@ classdef GluTA < matlab.apps.AppBase
     
     % Interaction methods
     methods (Access = private)
-        function updatePlot(app)
-            cla(app.UIAxesPlot)
-            legend(app.UIAxesPlot, 'off');
+        function updatePlot(app, varargin)
+            if nargin == 2
+                plotAx = varargin{1};
+            else
+                plotAx = app.UIAxesPlot;
+            end
+            cla(plotAx)
+            legend(plotAx, 'off');
             % Filter the cells that needs to be plotted
             tempData = app.imgT.DetrendData{app.currCell};
             switch app.VisualizeDropDown.Value
@@ -161,26 +168,26 @@ classdef GluTA < matlab.apps.AppBase
             % Add some check for the type of plot (mean or individual)
             switch app.PlotTypeButtonGroup.SelectedObject.Text
                 case 'All and mean'
-                    hold(app.UIAxesPlot, 'on')
-                    hLeg(1) = plot(app.UIAxesPlot, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
-                    plot(app.UIAxesPlot, time, tempData(:,2:end), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
-                    hLeg(2) = plot(app.UIAxesPlot, time, mean(tempData,2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:));
+                    hold(plotAx, 'on')
+                    hLeg(1) = plot(plotAx, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
+                    plot(plotAx, time, tempData(:,2:end), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
+                    hLeg(2) = plot(plotAx, time, mean(tempData,2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:));
                     legend(hLeg, {'All', 'Mean'}, 'Box', 'off');
                 case 'Single trace'
-                    hold(app.UIAxesPlot, 'on')
+                    hold(plotAx, 'on')
                     synN = app.TextSynNumber.Value;
                     synThr = calculateThreshold(app, tempData, synN);
-                    plot(app.UIAxesPlot, time, tempData(:,synN), 'Color', 'k', 'HitTest', 'off', 'ButtonDownFcn', '');
-                    plot(app.UIAxesPlot, time, synThr, '--', 'Color', [.5 .5 .5], 'HitTest', 'off', 'ButtonDownFcn', '');
+                    plot(plotAx, time, tempData(:,synN), 'Color', 'k', 'HitTest', 'off', 'ButtonDownFcn', '');
+                    plot(plotAx, time, synThr, '--', 'Color', [.5 .5 .5], 'HitTest', 'off', 'ButtonDownFcn', '');
                     if any(strcmp(app.imgT.Properties.VariableNames, 'PeakLoc'))
                         if ~isempty(app.imgT.PeakLoc{app.currCell})
                             tempLocs = app.imgT.PeakLoc{app.currCell}{synN};
                             tempInts = app.imgT.PeakInt{app.currCell}{synN};
-                            plot(app.UIAxesPlot, (tempLocs-1) / Fs, tempInts, 'or', 'HitTest', 'off', 'ButtonDownFcn', '');
+                            plot(plotAx, (tempLocs-1) / Fs, tempInts, 'or', 'HitTest', 'off', 'ButtonDownFcn', '');
                         end
                     end
                     if app.FixYAxisButton.Value
-                        app.UIAxesPlot.YLim = app.yLim;
+                        plotAx.YLim = app.yLim;
                     end
             end
         end
@@ -864,6 +871,27 @@ classdef GluTA < matlab.apps.AppBase
         end
         
         function ExportPlot(app, event)
+            switch event.Source.Text
+                case 'Export'
+                    tempTraces = app.imgT.DetrendData{app.currCell};
+                    hRaster = figure('Name', 'Raster', 'NumberTitle', 'off', 'Color', 'white', 'Position', [433 338 731 562]);
+                    aRaster = axes(hRaster);
+                    hOverview = figure('Name', 'Overview', 'NumberTitle', 'off', 'Color', 'white', 'Position', [433 12 726 289]);
+                    aOverview = axes(hOverview);
+                    plotRaster(app, tempTraces, aRaster, aOverview);
+                case 'Export trace'
+                    hTrace = figure('Name', 'Trace', 'NumberTitle', 'off', 'Color', 'white');
+                    aTrace = axes(hTrace);
+                    updatePlot(app, aTrace);
+                    aTrace.TickDir = 'out';
+                    ylabel(aTrace, 'iGluSnFR intensity (a.u.)')
+                    xlabel(aTrace, 'Time (s)')
+                case 'Export plot'
+                    hBox = figure('Name', 'Boxplot', 'NumberTitle', 'off', 'Color', 'white', 'Position', [1300 340 560 560]);
+                    aBox = axes(hBox);
+                    var.Key = 'shift';
+                    TableSelectedCell(app, var, aBox);
+            end
         end
         
         function keepCell(app)
@@ -1204,7 +1232,14 @@ classdef GluTA < matlab.apps.AppBase
             app.UITableAll.Data = table(cellID, recID, cellKeep, cellFreq, cellInt, cellProm, netFreq(:,2), cellActive, cellSync, cellMax);
         end
         
-        function plotRaster(app, tempTraces)
+        function plotRaster(app, tempTraces, varargin)
+            if nargin == 4
+                plotAx1 = varargin{1};
+                plotAx2 = varargin{2};
+            else
+                plotAx1 = app.UIAxesRaster;
+                plotAx2 = app.UIAxesOverview;
+            end
             tempRaster = tempTraces;
             keepSyn = app.imgT.KeepSyn{app.currCell};
             Fs = app.imgT.Fs(app.currCell);
@@ -1212,7 +1247,7 @@ classdef GluTA < matlab.apps.AppBase
             cellSpace = max(tempRaster,[],'all') / 3;
             cellNum = (1:size(tempRaster,2)) * cellSpace;
             tempRaster = tempRaster + repmat(cellNum,size(tempRaster,1),1);
-            plot(app.UIAxesRaster, time, tempRaster, 'k')
+            plot(plotAx1, time, tempRaster, 'k')
             % Adjust the color based on the keep data
             if app.imgT.KeepCell(app.currCell)
                 cmap = [0 0 0; 0.9 0.9 0.9];
@@ -1222,30 +1257,30 @@ classdef GluTA < matlab.apps.AppBase
             for s = 1:numel(keepSyn)
                 keepIdx = numel(keepSyn) - s +1;
                 if keepSyn(s)
-                    app.UIAxesRaster.Children(keepIdx).Color = cmap(1,:);
+                    plotAx1.Children(keepIdx).Color = cmap(1,:);
                 else
-                    app.UIAxesRaster.Children(keepIdx).Color = cmap(2,:);
+                    plotAx1.Children(keepIdx).Color = cmap(2,:);
                 end
             end
             yMin = round(min(tempRaster,[],'all'), 2, 'significant');
             yMax = round(max(tempRaster,[],'all'), 2, 'significant') + cellSpace;
-            app.UIAxesRaster.YLim = [yMin, yMax];
-            app.UIAxesRaster.YTick = linspace(yMin+cellSpace, yMax-cellSpace, size(tempRaster,2));
-            app.UIAxesRaster.YTickLabel = 1:size(tempRaster,2);
-            title(app.UIAxesRaster, regexprep(app.imgT.CellID(app.currCell), '_', ' '))
-            box(app.UIAxesRaster, 'off');
-            app.UIAxesRaster.TickDir = 'out';
+            plotAx1.YLim = [yMin, yMax];
+            plotAx1.YTick = linspace(yMin+cellSpace, yMax-cellSpace, size(tempRaster,2));
+            plotAx1.YTickLabel = 1:size(tempRaster,2);
+            title(plotAx1, regexprep(app.imgT.CellID(app.currCell), '_', ' '))
+            box(plotAx1, 'off');
+            plotAx1.TickDir = 'out';
             % Plot the average trace
             tempSync = app.imgT.PeakSync{app.currCell};
             nSyn = size(tempRaster,2);
-            yyaxis(app.UIAxesOverview, 'left');
-            area(app.UIAxesOverview, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
-            ylabel(app.UIAxesOverview, '% of synapses')
-            yyaxis(app.UIAxesOverview, 'right');
-            plot(app.UIAxesOverview, time, mean(tempTraces(:,keepSyn),2), 'r');
-            ylabel(app.UIAxesOverview, 'iGluSnFR intensity (a.u.)')
-            box(app.UIAxesOverview, 'off');
-            app.UIAxesOverview.TickDir = 'out';
+            yyaxis(plotAx2, 'left');
+            area(plotAx2, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
+            ylabel(plotAx2, '% of synapses')
+            yyaxis(plotAx2, 'right');
+            plot(plotAx2, time, mean(tempTraces(:,keepSyn),2), 'r');
+            ylabel(plotAx2, 'iGluSnFR intensity (a.u.)')
+            box(plotAx2, 'off');
+            plotAx2.TickDir = 'out';
         end
         
         function updateRaster(app, event)
@@ -1288,9 +1323,14 @@ classdef GluTA < matlab.apps.AppBase
             app.selectedTableCell = event.Indices;
         end
         
-        function TableSelectedCell(app, event)
+        function TableSelectedCell(app, event, varargin)
             togglePointer(app)
             if strcmp(event.Key, 'shift')
+                if nargin == 3
+                    plotAx = varargin{1};
+                else
+                    plotAx = app.UIAxesBox;
+                end
                 % First check if there is one or two colum selected
                 if size(app.selectedTableCell, 1) == 1
                     switch app.UITableAll.ColumnName{app.selectedTableCell(2)}
@@ -1303,12 +1343,12 @@ classdef GluTA < matlab.apps.AppBase
                             populateRecID(app);
                             populateTable(app, event)
                         case 'Keep'
-                            cla(app.UIAxesBox);
-                            reset(app.UIAxesBox);
-                            if ~isempty(app.UIAxesBox.Legend)
-                                app.UIAxesBox.Legend.Visible = 'off';
+                            cla(plotAx);
+                            reset(plotAx);
+                            if ~isempty(plotAx.Legend)
+                                plotAx.Legend.Visible = 'off';
                             end
-                            hold(app.UIAxesBox, 'on');
+                            hold(plotAx, 'on');
                             uniCond = categories(app.imgT.ConditionID);
                             nCond = numel(uniCond);
                             cmap = getColormap(app);
@@ -1323,27 +1363,27 @@ classdef GluTA < matlab.apps.AppBase
                                     batchFltr = varB == batches(b);
                                     tempData(b,1) = sum(app.imgT{condFltr & batchFltr, 'KeepCell'}) / sum(condFltr & batchFltr);
                                 end
-                                plot(app.UIAxesBox, x, tempData, 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerSize', 8, 'MarkerEdgeColor', 'none')
-                                plot(app.UIAxesBox, x, ones(1,3)*mean(tempData), 'Color', cmap(c,:))
-                                plot(app.UIAxesBox, [c c], [mean(tempData)-std(tempData) mean(tempData)+std(tempData)], 'Color', cmap(c,:))
+                                plot(plotAx, x, tempData, 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerSize', 8, 'MarkerEdgeColor', 'none', 'HitTest', 'off', 'ButtonDownFcn', '')
+                                plot(plotAx, x, ones(1,3)*mean(tempData), 'Color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '')
+                                plot(plotAx, [c c], [mean(tempData)-std(tempData) mean(tempData)+std(tempData)], 'Color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '')
                             end
                             % Add the label
-                            app.UIAxesBox.TickDir = 'out';
-                            app.UIAxesBox.XLim = [.5 nCond+.5];
-                            app.UIAxesBox.XTick = 1:nCond;
-                            app.UIAxesBox.XTickLabel = uniCond;
-                            app.UIAxesBox.XTickLabelRotation = 45;
-                            ylabel(app.UIAxesBox, 'Keeped to total recording ratio')
+                            plotAx.TickDir = 'out';
+                            plotAx.XLim = [.5 nCond+.5];
+                            plotAx.XTick = 1:nCond;
+                            plotAx.XTickLabel = uniCond;
+                            plotAx.XTickLabelRotation = 45;
+                            ylabel(plotAx, 'Keeped to total recording ratio')
                         otherwise
                             % First make sure that the data is up to date
                             quantifySpikes(app)
                             populateCellTable(app)
-                            cla(app.UIAxesBox);
-                            reset(app.UIAxesBox);
-                            if ~isempty(app.UIAxesBox.Legend)
-                                app.UIAxesBox.Legend.Visible = 'off';
+                            cla(plotAx);
+                            reset(plotAx);
+                            if ~isempty(plotAx.Legend)
+                                plotAx.Legend.Visible = 'off';
                             end
-                            hold(app.UIAxesBox, 'on');
+                            hold(plotAx, 'on');
                             vars = app.UITableAll.ColumnName;
                             keepFltr = app.UITableAll.Data.cellKeep;
                             varX = app.UITableAll.Data{keepFltr, app.selectedTableCell(2)};
@@ -1351,17 +1391,17 @@ classdef GluTA < matlab.apps.AppBase
                             varB = app.UITableAll.Data{keepFltr, 'cellID'};
                             varB = cellfun(@(x) regexp(x, '_', 'split'), varB, 'UniformOutput', false);
                             varB = cellfun(@(x) x(1), varB);
-                            dataBoxPlot(app, varX, varG, varB, vars{app.selectedTableCell(2)})
-%                             app.UIAxesBox.YLim = [0 .1];
+                            dataBoxPlot(app, varX, varG, varB, vars{app.selectedTableCell(2)}, plotAx)
+%                             plotAx.YLim = [0 .1];
                     end
                 elseif size(app.selectedTableCell, 1) == 2
                     % Scatter plot of the data
-                    cla(app.UIAxesBox);
-                    reset(app.UIAxesBox);
-                    if ~isempty(app.UIAxesBox.Legend)
-                        app.UIAxesBox.Legend.Visible = 'off';
+                    cla(plotAx);
+                    reset(plotAx);
+                    if ~isempty(plotAx.Legend)
+                        plotAx.Legend.Visible = 'off';
                     end
-                    hold(app.UIAxesBox, 'on');
+                    hold(plotAx, 'on');
                     % Get the data to plot
                     keepFltr = app.UITableAll.Data.cellKeep;
                     varX = app.UITableAll.Data{keepFltr,app.selectedTableCell(1,2)};
@@ -1375,20 +1415,20 @@ classdef GluTA < matlab.apps.AppBase
                     for c = 1:nCond
                         if any(c==[1 4 7])
                             condFltr = varG == uniCond(c);
-                            hLeg(l) = plot(app.UIAxesBox, varX(condFltr), varY(condFltr), 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerEdgeColor', cmap(c,:));
+                            hLeg(l) = plot(plotAx, varX(condFltr), varY(condFltr), 'o', 'MarkerFaceColor', cmap(c,:), 'MarkerEdgeColor', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '');
                             l=l+1;
                         end
                     end
                     legend(hLeg, uniCond([1 4 7]), 'Location', 'best')
-                    xlabel(app.UIAxesBox, app.UITableAll.ColumnName(app.selectedTableCell(1,2)))
-                    ylabel(app.UIAxesBox, app.UITableAll.ColumnName(app.selectedTableCell(2,2)))
+                    xlabel(plotAx, app.UITableAll.ColumnName(app.selectedTableCell(1,2)))
+                    ylabel(plotAx, app.UITableAll.ColumnName(app.selectedTableCell(2,2)))
                 else
-                    cla(app.UIAxesBox);
-                    reset(app.UIAxesBox);
-                    if ~isempty(app.UIAxesBox.Legend)
-                        app.UIAxesBox.Legend.Visible = 'off';
+                    cla(plotAx);
+                    reset(plotAx);
+                    if ~isempty(plotAx.Legend)
+                        plotAx.Legend.Visible = 'off';
                     end
-                    hold(app.UIAxesBox, 'on');
+                    hold(plotAx, 'on');
                     % The X axis is the percentage of cell that are active at the same time
                     fillX = [1:100 100:-1:1];
                     % The Y axis if the time that a cell spend active with that amount of synapses
@@ -1410,16 +1450,16 @@ classdef GluTA < matlab.apps.AppBase
                         end
                         if any(c==[1 4 7])
                             fillY = [tempMean-tempSEM fliplr(tempMean+tempSEM)];
-                            fill(app.UIAxesBox, fillX, fillY, cmap(c,:), 'EdgeColor', 'none', 'FaceAlpha', .3);
-                            hLeg(l) = plot(app.UIAxesBox, 1:100, tempMean, 'Color', cmap(c,:));
+                            fill(plotAx, fillX, fillY, cmap(c,:), 'EdgeColor', 'none', 'FaceAlpha', .3);
+                            hLeg(l) = plot(plotAx, 1:100, tempMean, 'Color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '');
                             l=l+1;
                         end
                     end
                     legend(hLeg, uniCond([1 4 7]), 'Box', 'off')
-                    app.UIAxesBox.XLim = [0 100];
-                    app.UIAxesBox.YLim = [0 app.UIAxesBox.YLim(2)];
-                    xlabel(app.UIAxesBox, '% of active synapses');
-                    ylabel(app.UIAxesBox, '% of time');
+                    plotAx.XLim = [0 100];
+                    plotAx.YLim = [0 plotAx.YLim(2)];
+                    xlabel(plotAx, '% of active synapses');
+                    ylabel(plotAx, '% of time');
                 end
             end
             togglePointer(app)
@@ -1442,7 +1482,7 @@ classdef GluTA < matlab.apps.AppBase
             end
         end
         
-        function dataBoxPlot(app, varX, varG, varB, varLabel)
+        function dataBoxPlot(app, varX, varG, varB, varLabel, plotAx)
             uniCond = categories(varG);
             nCond = numel(uniCond);
             cmap = getColormap(app);
@@ -1460,26 +1500,26 @@ classdef GluTA < matlab.apps.AppBase
                 highW = find(tempY<=maxW,1,'last');
                 maxW = tempY(highW);
                 % Boxplot
-                patch(app.UIAxesBox, [c-.25 c+.25 c+.25 c-.25], [quantY(1) quantY(1) quantY(3) quantY(3)], cmap(c,:), 'FaceAlpha', .3, 'EdgeColor', cmap(c,:));
-                plot(app.UIAxesBox, [c-.25 c+.25], [quantY(2) quantY(2)], 'color', cmap(c,:), 'LineWidth', 2);
-                plot(app.UIAxesBox, [c c], [minW quantY(1)], 'color', cmap(c,:));
-                plot(app.UIAxesBox, [c c], [quantY(3) maxW], 'color', cmap(c,:));
+                patch(plotAx, [c-.25 c+.25 c+.25 c-.25], [quantY(1) quantY(1) quantY(3) quantY(3)], cmap(c,:), 'FaceAlpha', .3, 'EdgeColor', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '');
+                plot(plotAx, [c-.25 c+.25], [quantY(2) quantY(2)], 'color', cmap(c,:), 'LineWidth', 2, 'HitTest', 'off', 'ButtonDownFcn', '');
+                plot(plotAx, [c c], [minW quantY(1)], 'color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '');
+                plot(plotAx, [c c], [quantY(3) maxW], 'color', cmap(c,:), 'HitTest', 'off', 'ButtonDownFcn', '');
                 % Add the data points
                 x = linspace(c - 0.15, c + 0.15, nBatch);
                 for b = 1:nBatch
                     batchFltr = varB == batches(b);
                     if sum(batchFltr & condFltr) > 0
-                        plot(app.UIAxesBox, x(b), varX(batchFltr & condFltr), 'o', 'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 4, 'MarkerFaceColor', 'w')
+                        plot(plotAx, x(b), varX(batchFltr & condFltr), 'o', 'MarkerEdgeColor', cmap(c,:), 'MarkerSize', 4, 'MarkerFaceColor', 'w', 'HitTest', 'off', 'ButtonDownFcn', '')
                     end
                 end
             end
             % Add the label
-            app.UIAxesBox.TickDir = 'out';
-            app.UIAxesBox.XLim = [.5 nCond+.5];
-            app.UIAxesBox.XTick = 1:nCond;
-            app.UIAxesBox.XTickLabel = uniCond;
-            app.UIAxesBox.XTickLabelRotation = 45;
-            ylabel(app.UIAxesBox, varLabel)
+            plotAx.TickDir = 'out';
+            plotAx.XLim = [.5 nCond+.5];
+            plotAx.XTick = 1:nCond;
+            plotAx.XTickLabel = uniCond;
+            plotAx.XTickLabelRotation = 45;
+            ylabel(plotAx, varLabel)
         end
         
         function ResetRaster(app)
@@ -1552,8 +1592,8 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'off');
             
             % Create DetrendButton, Export and Fix Y axis value
-            app.ExportTraceButton = uibutton(app.MainTab, 'state', 'Text', 'Export trace', 'Position', [1032 381 100 22],...
-                'Enable', 'off');
+            app.ExportTraceButton = uibutton(app.MainTab, 'push', 'Text', 'Export trace', 'Position', [1032 381 100 22],...
+                'Enable', 'off', 'ButtonPushedFcn', createCallbackFcn(app, @ExportPlot, true));
             app.KeepCellToggle = uibutton(app.MainTab, 'state', 'Text', 'Keep cell', 'Position', [1032 410 100 22],...
                 'Enable', 'off', 'ValueChangedFcn', createCallbackFcn(app, @keepCell, false));
             app.FixYAxisButton = uibutton(app.MainTab, 'state', 'Text', 'Fix Y Axis', 'Position', [1450 338 100 22],...
@@ -1733,6 +1773,9 @@ classdef GluTA < matlab.apps.AppBase
             % Create the axis to store the overview of the data
             app.UIAxesBox = uiaxes(app.TableTab, 'Position', [1300 340 560 560]);
             title(app.UIAxesBox, ''); xlabel(app.UIAxesBox, ''); ylabel(app.UIAxesBox, '');
+            app.FigureMenu = uicontextmenu(app.UIFigure);
+            app.BoxMenu = uimenu(app.FigureMenu, 'Text', 'Export plot', 'MenuSelectedFcn', createCallbackFcn(app, @ExportPlot, true));
+            app.UIAxesBox.ContextMenu = app.FigureMenu;
             
             
             movegui(app.UIFigure, 'center');
