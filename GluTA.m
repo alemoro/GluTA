@@ -249,7 +249,7 @@ classdef GluTA < matlab.apps.AppBase
             % Get the list of recordings for the detection
             switch app.DetectEventButtonGroup.SelectedObject.Text
                 case 'All FOVs'
-                    cellFltr = contains(app.imgT.StimID, 'Naive');
+                    cellFltr = contains(app.imgT.StimID, app.List_RecID.Value);
                 case 'Current list'
                     cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
                 case 'Selected FOV'
@@ -299,7 +299,7 @@ classdef GluTA < matlab.apps.AppBase
                 app.imgT.KeepSyn(cellIDs) = keepSyn;
                 app.imgT.PeakSync(cellIDs) = syncPeak;
                 if ~any(strcmp(app.imgT.Properties.VariableNames, 'KeepCell'))
-                    app.imgT.KeepCell(cellIDs) = true;
+                    app.imgT.KeepCell(cellIDs) = true(height(app.imgT),1);
                 end
                 updatePlot(app);
                 delete(hWait);  
@@ -860,11 +860,11 @@ classdef GluTA < matlab.apps.AppBase
                         scroll(app.List_CellID, app.List_CellID.Value);
                         populateRecID(app);
                         populateTable(app, event)
-                    case "z"
+                    case "z" % Zoom in the trace plot
                         app.ZoomInButton.Value = ~app.ZoomInButton.Value;
                         var.Source.Text = 'Zoom In';
-                        ZoomIn(app, var);
-                    case "space"
+                        ZoomIn(app, var); 
+                    case "space" % Toogle if keeping the cell or not
                         keepCell(app);
                 end
             end
