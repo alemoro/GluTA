@@ -283,6 +283,7 @@ classdef GluTA < matlab.apps.AppBase
                     app.AddPeaksButton.Enable = 'on';
                     app.DeletePeaksButton.Enable = 'on';
                     app.KeepCellToggle.Enable = 'on';
+                    app.FileMenuExport.Enable = 'on';
                 end
                 app.newChange = true;
             catch ME
@@ -290,6 +291,12 @@ classdef GluTA < matlab.apps.AppBase
                 disp(ME)
                 errordlg('Failed to load the data. Please check command window for details', 'Loading failed');
             end
+        end
+        
+        function FileMenuExportSelected(app, event)
+            expT = app.imgT(:, [2:12 17 26:69]);
+            [fileName, filePath] = uiputfile('*.csv', 'Export network data');
+            writetable(expT, fullfile(filePath, fileName));
         end
         
         function OptionMenuDebugSelected(app)
@@ -438,6 +445,7 @@ classdef GluTA < matlab.apps.AppBase
                 app.AddPeaksButton.Enable = 'on';
                 app.DeletePeaksButton.Enable = 'on';
                 app.KeepCellToggle.Enable = 'on';
+                app.FileMenuExport.Enable = 'on';
                 app.newChange = true;
             catch ME
                 sprintf('Error in cell %s at synapse %d.', app.imgT.CellID{c}, s)
@@ -961,24 +969,29 @@ classdef GluTA < matlab.apps.AppBase
                         app.imgT.Syn_Mean_Intensity(c) = mean(synInt(synKeep));
                         app.imgT.Syn_Mean_Prominence(c) = mean(synProm(synKeep));
                         app.imgT.Syn_Mean_Frequency(c) = mean(synFreq(synKeep));
-                        app.imgT.Syn_Mean_ISI(c) = mean(synFreq(synKeep));
+                        app.imgT.Syn_Mean_ISI(c) = mean(cell2mat(synISI(synKeep)));
                         app.imgT.Syn_Median_Intensity(c) = median(synInt(synKeep));
                         app.imgT.Syn_Median_Prominence(c) = median(synProm(synKeep));
                         app.imgT.Syn_Median_Frequency(c) = median(synFreq(synKeep));
+                        app.imgT.Syn_Median_ISI(c) = median(cell2mat(synISI(synKeep)));
                         app.imgT.Syn_Variance_Intensity(c) = var(synInt(synKeep));
                         app.imgT.Syn_Variance_Prominence(c) = var(synProm(synKeep));
                         app.imgT.Syn_Variance_Frequency(c) = var(synFreq(synKeep));
+                        app.imgT.Syn_Variance_ISI(c) = var(cell2mat(synISI(synKeep)));
                         % Histogram description of all the synapses in one cell
                         app.imgT.Syn_Skewness_Intensity(c) = skewness(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
                         app.imgT.Syn_Skewness_Prominence(c) = skewness(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
                         app.imgT.Syn_Skewness_Frequency(c) = skewness(synFreq(synKeep), 0);
+                        app.imgT.Syn_Skewness_ISI(c) = skewness(cell2mat(synISI(synKeep)), 0);
                         app.imgT.Syn_Kurtosis_Intensity(c) = kurtosis(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
                         app.imgT.Syn_Kurtosis_Prominence(c) = kurtosis(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
                         app.imgT.Syn_Kurtosis_Frequency(c) = kurtosis(synFreq(synKeep), 0);
+                        app.imgT.Syn_Kurtosis_ISI(c) = kurtosis(cell2mat(synISI(synKeep)), 0);
                         % Coefficient of variation between the synapses
                         app.imgT.Syn_CoV_Intensity(c) = sqrt(app.imgT.Syn_Variance_Intensity(c)) / app.imgT.Syn_Mean_Intensity(c);
                         app.imgT.Syn_CoV_Prominence(c) = sqrt(app.imgT.Syn_Variance_Prominence(c)) / app.imgT.Syn_Mean_Prominence(c);
                         app.imgT.Syn_CoV_Frequency(c) = sqrt(app.imgT.Syn_Variance_Frequency(c)) / app.imgT.Syn_Mean_Frequency(c);
+                        app.imgT.Syn_CoV_ISI(c) = sqrt(app.imgT.Syn_Variance_ISI(c)) / app.imgT.Syn_Mean_ISI(c);
                         % Get the synchronous-based quantifications
                         app.imgT.Sync_Frequency(c) = numel(app.imgT.Sync_PeakLocation{c}{1}) / (nFrames/Fs);
                         app.imgT.Sync_Raw_MaxActiveSynapses(c) = max(app.imgT.PeakSync{c});
@@ -1007,21 +1020,27 @@ classdef GluTA < matlab.apps.AppBase
                         app.imgT.Syn_Mean_Intensity(c) = NaN;
                         app.imgT.Syn_Mean_Prominence(c) = NaN;
                         app.imgT.Syn_Mean_Frequency(c) = NaN;
+                        app.imgT.Syn_Mean_ISI(c) = NaN;
                         app.imgT.Syn_Median_Intensity(c) = NaN;
                         app.imgT.Syn_Median_Prominence(c) = NaN;
                         app.imgT.Syn_Median_Frequency(c) = NaN;
+                        app.imgT.Syn_Median_ISI(c) = NaN;
                         app.imgT.Syn_Variance_Intensity(c) = NaN;
                         app.imgT.Syn_Variance_Prominence(c) = NaN;
                         app.imgT.Syn_Variance_Frequency(c) = NaN;
+                        app.imgT.Syn_Variance_ISI(c) = NaN;
                         app.imgT.Syn_Skewness_Intensity(c) = NaN;
                         app.imgT.Syn_Skewness_Prominence(c) = NaN;
                         app.imgT.Syn_Skewness_Frequency(c) = NaN;
+                        app.imgT.Syn_Skewness_ISI(c) = NaN;
                         app.imgT.Syn_Kurtosis_Intensity(c) = NaN;
                         app.imgT.Syn_Kurtosis_Prominence(c) = NaN;
                         app.imgT.Syn_Kurtosis_Frequency(c) = NaN;
+                        app.imgT.Syn_Kurtosis_ISI(c) = NaN;
                         app.imgT.Syn_CoV_Intensity(c) = NaN;
                         app.imgT.Syn_CoV_Prominence(c) = NaN;
                         app.imgT.Syn_CoV_Frequency(c) = NaN;
+                        app.imgT.Syn_CoV_ISI(c) = NaN;
                         app.imgT.Sync_Frequency(c) = NaN;
                         app.imgT.Sync_Raw_MaxActiveSynapses(c) = NaN;
                         app.imgT.Sync_Percentage_MaxActiveSynapses(c) = NaN;
