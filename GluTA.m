@@ -13,6 +13,9 @@ classdef GluTA < matlab.apps.AppBase
         FileMenuSave
         FileMenuExport
         FileMenuLabelCondition
+        QuantifyMenu
+        QuantifyMenuCellPeaks
+        QuantifyMenuFeature
         OptionMenu
         OptionMenuDebug
         TabGroup
@@ -142,291 +145,10 @@ classdef GluTA < matlab.apps.AppBase
                     66 133 244;...      % Google BLUE
                     244 180 0] / 255;	% Google YELLOW
         tempAddPeak = []; % Array to store the temporaney peaks with manual detection
+        activeFltr = false; % Boolean to use only the active synapses in "Main"
     end
     
     % Interaction methods
-    methods (Access = private)
-        function updatePlot(app, varargin)
-            if nargin == 2
-                plotAx = varargin{1};
-            else
-                plotAx = app.UIAxesPlot;
-            end
-            cla(plotAx)
-            legend(plotAx, 'off');
-            % Filter the cells that needs to be plotted
-            tempData = app.imgT.DetrendData{app.currCell};
-            switch app.VisualizeDropDown.Value
-                case 'Gradient'
-                    tempData = gradient(tempData);
-                case 'Smooth'
-                    tempData = wdenoise(tempData, 5, 'DenoisingMethod', 'BlockJS');
-            end
-            Fs = app.imgT.Fs(app.currCell);
-            time = (0:length(tempData)-1) / Fs;
-            % Add some checks if there is stimulation needed
-            % Add some check for the type of plot (mean or individual)
-            switch app.PlotTypeButtonGroup.SelectedObject.Text
-                case 'All and mean'
-                    hold(plotAx, 'on')
-                    hLeg(1) = plot(plotAx, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
-                    plot(plotAx, time, tempData(:,2:end), 'Color', [.8 .8 .8], 'LineWidth', 0.5);
-                    hLeg(2) = plot(plotAx, time, mean(tempData,2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:));
-                    legend(hLeg, {'All', 'Mean'}, 'Box', 'off');
-                case 'Single trace'
-                    hold(plotAx, 'on')
-                    synN = app.TextSynNumber.Value;
-                    synThr = calculateThreshold(app, tempData, synN);
-                    plot(plotAx, time, tempData(:,synN), 'Color', 'k', 'HitTest', 'off', 'ButtonDownFcn', '');
-                    plot(plotAx, time, synThr, '--', 'Color', [.5 .5 .5], 'HitTest', 'off', 'ButtonDownFcn', '');
-                    if any(strcmp(app.imgT.Properties.VariableNames, 'PeakLoc'))
-                        if ~isempty(app.imgT.PeakLoc{app.currCell})
-                            tempLocs = app.imgT.PeakLoc{app.currCell}{synN};
-                            tempInts = app.imgT.PeakInt{app.currCell}{synN};
-                            plot(plotAx, (tempLocs-1) / Fs, tempInts, 'or', 'HitTest', 'off', 'ButtonDownFcn', '');
-                        end
-                    end
-                    if app.FixYAxisButton.Value
-                        plotAx.YLim = app.yLim;
-                    end
-            end
-        end
-        
-        function populateCellID(app)
-            % Get the list of unique cell IDs
-            cellIDs = unique(app.imgT.ExperimentID);
-            app.List_CellID.Items = cellIDs;
-            app.List_CellID.Enable = 'on';
-            app.List_CellID.Value = app.List_CellID.Items(app.currCell);
-            scroll(app.List_CellID, app.List_CellID.Value);
-        end
-        
-        function populateRecID(app)
-            % For the selected cell get the different recording
-            cellFltr = matches(app.imgT.ExperimentID, app.List_CellID.Value);
-            stimIDs = app.imgT.StimID(cellFltr);
-            app.List_RecID.Items = [stimIDs(matches(stimIDs, 'Naive')); stimIDs(~matches(stimIDs, 'Naive'))];
-            app.List_RecID.Enable = 'on';
-            List_RecID_changed(app, []);
-            % Check if we need to show the ROIs
-            if numel(app.patchMask) > 0
-                delete(app.patchMask)
-            end
-            if app.ShowROIsButton.Value
-                showROIs(app);
-            end
-        end
-        
-        function prevButtonPressed(app)
-            nSyn = size(app.imgT.DetrendData{app.currCell}, 2);
-            currentSyn = app.TextSynNumber.Value;
-            if currentSyn-1 < 1
-                app.TextSynNumber.Value = nSyn;
-            else
-                app.TextSynNumber.Value = currentSyn-1;
-            end
-            updatePlot(app);
-        end
-        
-        function nextButtonPressed(app)
-            nSyn = size(app.imgT.DetrendData{app.currCell}, 2);
-            currentSyn = app.TextSynNumber.Value;
-            if currentSyn+1 > nSyn
-                app.TextSynNumber.Value = 1;
-            else
-                app.TextSynNumber.Value = currentSyn+1;
-            end
-            updatePlot(app);
-            if app.ZoomInButton.Value
-                app.UIAxesPlot.XLimMode = 'auto';
-                oldXAxis = app.UIAxesPlot.XLim;
-                newXAxis = [oldXAxis(1), oldXAxis(end)/10];
-                app.UIAxesPlot.XLim = newXAxis;
-            end
-        end
-        
-        function DetectPeaksButtonPressed(app)
-            % Get the list of recordings for the detection
-            switch app.DetectEventButtonGroup.SelectedObject.Text
-                case 'All FOVs'
-                    cellFltr = contains(app.imgT.StimID, app.List_RecID.Value);
-                case 'Current list'
-                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
-                case 'Selected FOV'
-                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value) & contains(app.imgT.StimID, app.List_RecID.Value);
-            end
-            % Get the cells number
-            cellIDs = find(cellFltr);
-            nCell = numel(cellIDs);
-            peakLoc = cell(nCell,1);
-            peakInt = cell(nCell,1);
-            peakProm = cell(nCell,1);
-            peakSNR = cell(nCell,1);
-            keepSyn = cell(nCell,1);
-            syncPeak = cell(nCell,1);
-            hWait = waitbar(0, 'Detecting peaks in data');
-            try
-                for cells = 1:nCell
-                    waitbar(cells/nCell, hWait, 'Detecting peaks in data');
-                    c = cellIDs(cells);
-                    tempData = app.imgT.DetrendData{c};
-                    Fs = app.imgT.Fs(c);
-                    nSyn = size(tempData,2);
-                    synLoc = cell(nSyn,1);
-                    synInt = cell(nSyn,1);
-                    synProm = cell(nSyn,1);
-                    synSNR = cell(nSyn,1);
-                    for s = 1:nSyn
-                        tempThr = calculateThreshold(app, tempData, s);
-                        peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
-                        synInt{s} = peakInfo(:,1);
-                        synLoc{s} = peakInfo(:,2);
-                        synProm{s} = peakInfo(:,3);
-                        synSNR{s} = peakInfo(:,4);
-                    end
-                    peakLoc{cells} = synLoc;
-                    peakInt{cells} = synInt;
-                    peakProm{cells} = synProm;
-                    peakSNR{cells} = synSNR;
-                    keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
-                    % Calculate the synchronous peaks (based on the minimum distance)
-                    syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells});
-                end
-                app.imgT.PeakLoc(cellIDs) = peakLoc;
-                app.imgT.PeakInt(cellIDs) = peakInt;
-                app.imgT.PeakProm(cellIDs) = peakProm;
-                app.imgT.PeakSNR(cellIDs) = peakSNR;
-                app.imgT.KeepSyn(cellIDs) = keepSyn;
-                app.imgT.PeakSync(cellIDs) = syncPeak;
-                if ~any(strcmp(app.imgT.Properties.VariableNames, 'KeepCell'))
-                    app.imgT.KeepCell(cellIDs) = true(height(app.imgT),1);
-                end
-                updatePlot(app);
-                delete(hWait);  
-                app.AddPeaksButton.Enable = 'on';
-                app.DeletePeaksButton.Enable = 'on';
-                app.KeepCellToggle.Enable = 'on';
-                app.newChange = true;
-            catch ME
-                sprintf('Error in cell %s at synapse %d.', app.imgT.CellID{c}, s)
-                disp(ME)
-                delete(hWait);
-                errordlg('Failed to detect peaks. Please check command window for details', 'Detection failed');
-            end
-        end
-        
-        function addManualPeak(app, clickedPoint)
-            % Get the trace of the synapse
-            synN = app.TextSynNumber.Value;
-            tempData = app.imgT.DetrendData{app.currCell}(:,synN);
-            Fs = app.imgT.Fs(app.currCell);
-            % Get the info about the other spikes
-            if isempty(app.tempAddPeak)
-                allLoc = app.imgT.PeakLoc{app.currCell}{synN};
-                allInt = app.imgT.PeakInt{app.currCell}{synN};
-                allProm = app.imgT.PeakProm{app.currCell}{synN};
-                allSNR = app.imgT.PeakSNR{app.currCell}{synN};
-            else
-                allLoc = app.tempAddPeak.Loc;
-                allInt = app.tempAddPeak.Int;
-                allProm = app.tempAddPeak.Prom;
-                allSNR = app.tempAddPeak.SNR;
-            end
-            % Define the searching area
-            tempPoint = round(clickedPoint*Fs);
-            searchLim = app.PeakMinDistanceEdit.Value + round((app.PeakMinDurationEdit.Value+app.PeakMaxDurationEdit.Value) / 2);
-            searchLim = [tempPoint-searchLim tempPoint+searchLim];
-            peakLim1 = allLoc(find(allLoc<tempPoint,1,'last'))+1;
-            peakLim2 = allLoc(find(allLoc>tempPoint,1,'first'))-1;
-            if isempty(peakLim2)
-                peakLim2 = numel(tempData);
-            end
-            searchArea = max(peakLim1, searchLim(1)):min(peakLim2, searchLim(end));
-            % Find the maxima of this area
-            [newInt, newLoc, ~, newProm] = findpeaks(tempData(searchArea));
-            [newInt, newFltr] = max(newInt);
-            newLoc = newLoc(newFltr) + searchArea(1) -1;
-            newProm = newProm(newFltr);
-            newSNR = newInt / median(tempData);
-            % Check if there are other spikes in this area
-            if any(allLoc >= searchArea(1) & allLoc <= searchArea(end))
-                errordlg('Peak already detected in this area', 'No more peaks');
-            else
-                % Show the new point
-                plot(app.UIAxesPlot, (newLoc-1)/Fs, newInt, 'ob');
-                % Add the new peak to the table
-                allLoc = [allLoc; newLoc];
-                allInt = [allInt; newInt];
-                allProm = [allProm; newProm];
-                allSNR = [allSNR; newSNR];
-                [allLoc, sortIdx] = sort(allLoc);
-                allInt = allInt(sortIdx);
-                allProm = allProm(sortIdx);
-                allSNR = allSNR(sortIdx);
-                app.tempAddPeak.Loc = allLoc;
-                app.tempAddPeak.Int = allInt;
-                app.tempAddPeak.Prom = allProm;
-                app.tempAddPeak.SNR = allSNR;
-            end
-        end
-        
-        function deleteManualPeak(app, clickedPoint)
-             % Get the trace of the synapse
-            synN = app.TextSynNumber.Value;
-            tempData = app.imgT.DetrendData{app.currCell}(:,synN);
-            Fs = app.imgT.Fs(app.currCell);
-            % Get the info about the other spikes
-            allLoc = app.imgT.PeakLoc{app.currCell}{synN};
-            allInt = app.imgT.PeakInt{app.currCell}{synN};
-            % Define the searching area
-            searchLim = app.PeakMinDistanceEdit.Value + app.PeakMaxDurationEdit.Value;
-            tempPoint = round(clickedPoint*Fs);
-            searchArea = tempPoint-searchLim:tempPoint+searchLim;
-            % Find the peak to delete
-            delPeak = find(allLoc > searchArea(1) & allLoc < searchArea(end));
-            while numel(delPeak) > 1
-                searchLim = searchLim / 2;
-                searchArea = tempPoint-searchLim:tempPoint+searchLim;
-                delPeak = find(allLoc > searchArea(1) & allLoc < searchArea(end));
-            end
-            if numel(delPeak) == 1
-                % Show that this peak is deleted
-                plot(app.UIAxesPlot, (allLoc(delPeak)-1)/Fs, allInt(delPeak), 'xr', 'LineWidth', 1.5);
-                allLoc(delPeak) = [];
-                allInt(delPeak) = [];
-            end
-            app.imgT.PeakLoc{app.currCell}{synN} = allLoc;
-            app.imgT.PeakInt{app.currCell}{synN} = allInt;
-            app.newChange = true;
-        end
-        
-        function TableFilterSelected(app, event)
-            % First get the value to use for filtering
-            fltrVal = str2double(inputdlg('Choose the minimum value', 'Filter value'));
-            % Get the right cell
-            tempKeep = app.UITableSingle.Data.synKeep;
-            switch event.Source.Text
-                case 'Mean Intensity'
-                    % Get the averave intensity of the synapses
-                    tempPeak = app.UITableSingle.Data.synInt;
-                    tempKeep = tempPeak > fltrVal;
-                case 'Mean Frequency'
-                    % Get the frequency of spikes per synapse
-                    tempFreq = app.UITableSingle.Data.synFreq;
-                    tempKeep = tempFreq > fltrVal;
-                case 'Mean SNR'
-                    tempSNR = app.UITableSingle.Data.snr;
-                    tempKeep = tempSNR >= fltrVal;
-            end
-            % Store the new values and update the raster plot
-            app.imgT.KeepSyn{app.currCell} = tempKeep;
-            app.UITableSingle.Data.synKeep = tempKeep;
-            updateRaster(app);
-            app.newChange = true;
-        end
-    end
-    
-    % Callbacks methods
     methods (Access = private)
         function FileMenuImportSelected(app, event)
             % First locate the folder with the data
@@ -598,6 +320,304 @@ classdef GluTA < matlab.apps.AppBase
             app.Opt.DetrendSize = app.WindowSizeEdit.Value;
             app.Opt.DetectTrace = app.VisualizeDropDown.Value;
             app.SaveButton.Enable = 'off';
+        end
+       
+        function populateCellID(app)
+            % Get the list of unique cell IDs
+            cellIDs = unique(app.imgT.ExperimentID);
+            app.List_CellID.Items = cellIDs;
+            app.List_CellID.Enable = 'on';
+            app.List_CellID.Value = app.List_CellID.Items(app.currCell);
+            scroll(app.List_CellID, app.List_CellID.Value);
+        end
+        
+        function populateRecID(app)
+            % For the selected cell get the different recording
+            cellFltr = matches(app.imgT.ExperimentID, app.List_CellID.Value);
+            stimIDs = app.imgT.StimID(cellFltr);
+            app.List_RecID.Items = [stimIDs(matches(stimIDs, 'Naive')); stimIDs(~matches(stimIDs, 'Naive'))];
+            app.List_RecID.Enable = 'on';
+            List_RecID_changed(app, []);
+            % Check if we need to show the ROIs
+            if numel(app.patchMask) > 0
+                delete(app.patchMask)
+            end
+            if app.ShowROIsButton.Value
+                showROIs(app);
+            end
+        end
+        
+        function prevButtonPressed(app)
+            nSyn = size(app.imgT.DetrendData{app.currCell}, 2);
+            currentSyn = app.TextSynNumber.Value;
+            if currentSyn-1 < 1
+                app.TextSynNumber.Value = nSyn;
+            else
+                app.TextSynNumber.Value = currentSyn-1;
+            end
+            updatePlot(app);
+            figure(app.UIFigure);
+        end
+        
+        function nextButtonPressed(app)
+            nSyn = size(app.imgT.DetrendData{app.currCell}, 2);
+            currentSyn = app.TextSynNumber.Value;
+            if currentSyn+1 > nSyn
+                app.TextSynNumber.Value = 1;
+            else
+                app.TextSynNumber.Value = currentSyn+1;
+            end
+            updatePlot(app);
+            if app.ZoomInButton.Value
+                app.UIAxesPlot.XLimMode = 'auto';
+                oldXAxis = app.UIAxesPlot.XLim;
+                newXAxis = [oldXAxis(1), oldXAxis(end)/10];
+                app.UIAxesPlot.XLim = newXAxis;
+            end
+            figure(app.UIFigure);
+        end
+        
+        function DetectPeaksButtonPressed(app)
+            % Get the list of recordings for the detection
+            switch app.DetectEventButtonGroup.SelectedObject.Text
+                case 'All FOVs'
+                    cellFltr = contains(app.imgT.StimID, app.List_RecID.Value);
+                case 'Current list'
+                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
+                case 'Selected FOV'
+                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value) & contains(app.imgT.StimID, app.List_RecID.Value);
+            end
+            % Get the cells number
+            cellIDs = find(cellFltr);
+            nCell = numel(cellIDs);
+            peakLoc = cell(nCell,1);
+            peakInt = cell(nCell,1);
+            peakProm = cell(nCell,1);
+            peakSNR = cell(nCell,1);
+            keepSyn = cell(nCell,1);
+            syncPeak = cell(nCell,1);
+            hWait = waitbar(0, 'Detecting peaks in data');
+            try
+                for cells = 1:nCell
+                    waitbar(cells/nCell, hWait, 'Detecting peaks in data');
+                    c = cellIDs(cells);
+                    tempData = app.imgT.DetrendData{c};
+                    Fs = app.imgT.Fs(c);
+                    nSyn = size(tempData,2);
+                    synLoc = cell(nSyn,1);
+                    synInt = cell(nSyn,1);
+                    synProm = cell(nSyn,1);
+                    synSNR = cell(nSyn,1);
+                    for s = 1:nSyn
+                        tempThr = calculateThreshold(app, tempData, s);
+                        peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
+                        synInt{s} = peakInfo(:,1);
+                        synLoc{s} = peakInfo(:,2);
+                        synProm{s} = peakInfo(:,3);
+                        synSNR{s} = peakInfo(:,4);
+                    end
+                    peakLoc{cells} = synLoc;
+                    peakInt{cells} = synInt;
+                    peakProm{cells} = synProm;
+                    peakSNR{cells} = synSNR;
+                    keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
+                    % Calculate the synchronous peaks (based on the minimum distance)
+                    syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells});
+                end
+                app.imgT.PeakLoc(cellIDs) = peakLoc;
+                app.imgT.PeakInt(cellIDs) = peakInt;
+                app.imgT.PeakProm(cellIDs) = peakProm;
+                app.imgT.PeakSNR(cellIDs) = peakSNR;
+                app.imgT.KeepSyn(cellIDs) = keepSyn;
+                app.imgT.PeakSync(cellIDs) = syncPeak;
+                if ~any(strcmp(app.imgT.Properties.VariableNames, 'KeepCell'))
+                    app.imgT.KeepCell(cellIDs) = true(height(app.imgT),1);
+                end
+                updatePlot(app);
+                delete(hWait);  
+                app.AddPeaksButton.Enable = 'on';
+                app.DeletePeaksButton.Enable = 'on';
+                app.KeepCellToggle.Enable = 'on';
+                app.newChange = true;
+            catch ME
+                sprintf('Error in cell %s at synapse %d.', app.imgT.CellID{c}, s)
+                disp(ME)
+                delete(hWait);
+                errordlg('Failed to detect peaks. Please check command window for details', 'Detection failed');
+            end
+        end
+        
+        function addManualPeak(app, clickedPoint)
+            % Get the trace of the synapse
+            synN = app.TextSynNumber.Value;
+            tempData = app.imgT.DetrendData{app.currCell}(:,synN);
+            Fs = app.imgT.Fs(app.currCell);
+            % Get the info about the other spikes
+            if isempty(app.tempAddPeak)
+                allLoc = app.imgT.PeakLoc{app.currCell}{synN};
+                allInt = app.imgT.PeakInt{app.currCell}{synN};
+                allProm = app.imgT.PeakProm{app.currCell}{synN};
+                allSNR = app.imgT.PeakSNR{app.currCell}{synN};
+            else
+                allLoc = app.tempAddPeak.Loc;
+                allInt = app.tempAddPeak.Int;
+                allProm = app.tempAddPeak.Prom;
+                allSNR = app.tempAddPeak.SNR;
+            end
+            % Define the searching area
+            tempPoint = round(clickedPoint*Fs);
+            searchLim = app.PeakMinDistanceEdit.Value + round((app.PeakMinDurationEdit.Value+app.PeakMaxDurationEdit.Value) / 2);
+            searchLim = [tempPoint-searchLim tempPoint+searchLim];
+            peakLim1 = allLoc(find(allLoc<tempPoint,1,'last'))+1;
+            peakLim2 = allLoc(find(allLoc>tempPoint,1,'first'))-1;
+            if isempty(peakLim2)
+                peakLim2 = numel(tempData);
+            end
+            searchArea = max(peakLim1, searchLim(1)):min(peakLim2, searchLim(end));
+            % Find the maxima of this area
+            [newInt, newLoc, ~, newProm] = findpeaks(tempData(searchArea));
+            [newInt, newFltr] = max(newInt);
+            newLoc = newLoc(newFltr) + searchArea(1) -1;
+            newProm = newProm(newFltr);
+            newSNR = newInt / median(tempData);
+            % Check if there are other spikes in this area
+            if any(allLoc >= searchArea(1) & allLoc <= searchArea(end))
+                errordlg('Peak already detected in this area', 'No more peaks');
+            else
+                % Show the new point
+                plot(app.UIAxesPlot, (newLoc-1)/Fs, newInt, 'ob');
+                % Add the new peak to the table
+                allLoc = [allLoc; newLoc];
+                allInt = [allInt; newInt];
+                allProm = [allProm; newProm];
+                allSNR = [allSNR; newSNR];
+                [allLoc, sortIdx] = sort(allLoc);
+                allInt = allInt(sortIdx);
+                allProm = allProm(sortIdx);
+                allSNR = allSNR(sortIdx);
+                app.tempAddPeak.Loc = allLoc;
+                app.tempAddPeak.Int = allInt;
+                app.tempAddPeak.Prom = allProm;
+                app.tempAddPeak.SNR = allSNR;
+            end
+        end
+        
+        function addNetworkPeak(app, clickedPoint)
+            % Get the data and the previous points
+            if app.activeFltr
+                bSyn = app.imgT.KeepSyn{app.currCell};
+            else
+                bSyn = true(numel(app.imgT.KeepSyn{app.currCell}),1);
+            end
+            tempTrace = mean(app.imgT.DetrendData{app.currCell}(:,bSyn), 2);
+            tempSynapses = app.imgT.PeakSync{app.currCell};
+            Fs = app.imgT.Fs(app.currCell);
+            tempPoint = round(clickedPoint*Fs);
+            if isempty(app.tempAddPeak)
+                tempNetLoc = app.imgT.Sync_PeakLocation{app.currCell}{2};
+                tempNetInt = app.imgT.Sync_SynapseCount{app.currCell}{2};
+            else
+                tempNetLoc = app.tempAddPeak.Loc;
+                tempNetInt = app.tempAddPeak.Int;
+            end
+            % Get the search limits
+            searchLim = app.Opt.PeakMinDistance + app.Opt.PeakMaxDuration;
+            searchLim = [tempPoint-searchLim tempPoint+searchLim];
+            if isempty(tempNetLoc(find(tempNetLoc<tempPoint,1,'last'))+1)
+                peakLim = [1 tempNetLoc(find(tempNetLoc>tempPoint,1,'first'))-1];
+            elseif isempty(tempNetLoc(find(tempNetLoc>tempPoint,1,'first'))-1)
+                peakLim = [tempNetLoc(find(tempNetLoc<tempPoint,1,'last'))+1 numel(tempTrace)];
+            else
+                peakLim = [tempNetLoc(find(tempNetLoc<tempPoint,1,'last'))+1 tempNetLoc(find(tempNetLoc>tempPoint,1,'first'))-1];
+            end
+            searchLim = [max(searchLim(1), peakLim(1)), min(searchLim(2), peakLim(2))];
+            % Find the maximum
+            [maxV, maxI] = max(tempTrace(searchLim(1):searchLim(2)));
+            maxI = maxI + searchLim(1) - 1;
+            % Plot the new data
+            plot(app.UIAxesPlot, (maxI-1)/Fs, maxV, 'sm', 'HitTest', 'off', 'ButtonDownFcn', '');
+            % Add the data to the table
+            app.tempAddPeak.Loc = [tempNetLoc; maxI];
+            app.tempAddPeak.Int = [tempNetInt; tempSynapses(maxI)];
+        end
+        
+        function deleteManualPeak(app, clickedPoint)
+             % Get the trace of the synapse
+            synN = app.TextSynNumber.Value;
+            tempData = app.imgT.DetrendData{app.currCell}(:,synN);
+            Fs = app.imgT.Fs(app.currCell);
+            % Get the info about the other spikes
+            allLoc = app.imgT.PeakLoc{app.currCell}{synN};
+            allInt = app.imgT.PeakInt{app.currCell}{synN};
+            % Define the searching area
+            searchLim = app.PeakMinDistanceEdit.Value + app.PeakMaxDurationEdit.Value;
+            tempPoint = round(clickedPoint*Fs);
+            searchArea = tempPoint-searchLim:tempPoint+searchLim;
+            % Find the peak to delete
+            delPeak = find(allLoc > searchArea(1) & allLoc < searchArea(end));
+            while numel(delPeak) > 1
+                searchLim = searchLim / 2;
+                searchArea = tempPoint-searchLim:tempPoint+searchLim;
+                delPeak = find(allLoc > searchArea(1) & allLoc < searchArea(end));
+            end
+            if numel(delPeak) == 1
+                % Show that this peak is deleted
+                plot(app.UIAxesPlot, (allLoc(delPeak)-1)/Fs, allInt(delPeak), 'xr', 'LineWidth', 1.5);
+                allLoc(delPeak) = [];
+                allInt(delPeak) = [];
+            end
+            app.imgT.PeakLoc{app.currCell}{synN} = allLoc;
+            app.imgT.PeakInt{app.currCell}{synN} = allInt;
+            app.newChange = true;
+        end
+        
+        function deleteNetworkPeak(app, clickedPoint)
+            % Define the searching area
+            Fs = app.imgT.Fs(app.currCell);
+            tempTrace = mean(app.imgT.DetrendData{app.currCell}, 2);
+            searchLim = app.Opt.PeakMinDistance + app.Opt.PeakMinDuration;
+            tempPoint = round(clickedPoint*Fs);
+            searchArea = tempPoint-searchLim:tempPoint+searchLim;
+            if isempty(app.tempAddPeak)
+                allLoc = app.imgT.Sync_PeakLocation{app.currCell}{2};
+                allInt = app.imgT.Sync_SynapseCount{app.currCell}{2};
+            else
+                allLoc = app.tempAddPeak.Loc;
+                allInt = app.tempAddPeak.Int;
+            end
+            % Find the peak to delete
+            delPeak = find(allLoc > searchArea(1) & allLoc < searchArea(end));
+            if numel(delPeak) == 1
+                % Show that this peak is deleted
+                plot(app.UIAxesPlot, (allLoc(delPeak)-1)/Fs, tempTrace(allLoc(delPeak)), 'xr', 'LineWidth', 1.5);
+                app.tempAddPeak.Loc = [allLoc(~(allLoc > searchArea(1) & allLoc < searchArea(end))); allLoc(delPeak)];
+                app.tempAddPeak.Int = [allInt(~(allLoc > searchArea(1) & allLoc < searchArea(end))); allInt(delPeak)];
+            end
+        end
+        
+        function TableFilterSelected(app, event)
+            % First get the value to use for filtering
+            fltrVal = str2double(inputdlg('Choose the minimum value', 'Filter value'));
+            % Get the right cell
+            tempKeep = app.UITableSingle.Data.synKeep;
+            switch event.Source.Text
+                case 'Mean Intensity'
+                    % Get the averave intensity of the synapses
+                    tempPeak = app.UITableSingle.Data.synInt;
+                    tempKeep = tempPeak > fltrVal;
+                case 'Mean Frequency'
+                    % Get the frequency of spikes per synapse
+                    tempFreq = app.UITableSingle.Data.synFreq;
+                    tempKeep = tempFreq > fltrVal;
+                case 'Mean SNR'
+                    tempSNR = app.UITableSingle.Data.snr;
+                    tempKeep = tempSNR >= fltrVal;
+            end
+            % Store the new values and update the raster plot
+            app.imgT.KeepSyn{app.currCell} = tempKeep;
+            app.UITableSingle.Data.synKeep = tempKeep;
+            updateRaster(app);
+            app.newChange = true;
         end
         
         function OptionChanged(app)
@@ -786,6 +806,7 @@ classdef GluTA < matlab.apps.AppBase
             else
                 app.UIAxesPlot.YLimMode = 'auto';
             end
+            figure(app.UIFigure);
         end
         
         function ZoomIn(app, event)
@@ -810,6 +831,7 @@ classdef GluTA < matlab.apps.AppBase
                         app.UIAxesRaster.YLim = [0 ticks(end)+(2*yInc)];
                     end
             end
+            figure(app.UIFigure);
         end
         
         function keyPressed(app, event)
@@ -819,17 +841,24 @@ classdef GluTA < matlab.apps.AppBase
                         if app.AddPeaksButton.Value
                             app.tempAddPeak.Loc = app.tempAddPeak.Loc(1:end-1);
                             app.tempAddPeak.Int = app.tempAddPeak.Int(1:end-1);
-                            delete(app.UIAxesPlot.Children(1));
+                        elseif app.DeletePeaksButton.Value
+                            lastMod = app.tempAddPeak.Loc(end);
+                            lastIdx = find(app.tempAddPeak.Loc > lastMod, 1, 'first');
+                            app.tempAddPeak.Loc = [app.tempAddPeak.Loc(1:lastIdx-1); lastMod; app.tempAddPeak.Loc(lastIdx:end-1)];
+                            app.tempAddPeak.Int = [app.tempAddPeak.Int(1:lastIdx-1); app.tempAddPeak.Int(end); app.tempAddPeak.Int(lastIdx:end-1)];
                         end
+                        delete(app.UIAxesPlot.Children(1));
                 end
             else
                 switch event.Key
                     case "a" % Add new peaks
                         app.AddPeaksButton.Value = true;
-                        crosshairCursor(app, event);
+                        val.Source.Text = 'Add peaks';
+                        crosshairCursor(app, val);
                     case "d" % Delete peaks
                         app.DeletePeaksButton.Value = true;
-                        crosshairCursor(app, event);
+                        val.Source.Text = 'Delete peaks';
+                        crosshairCursor(app, val);
                     case "rightarrow" % move to next synapse
                         if app.SingleTracesRadio.Value
                             nextButtonPressed(app)
@@ -907,10 +936,185 @@ classdef GluTA < matlab.apps.AppBase
             figure(app.UIFigure);
             app.newChange = true;
         end
+        
+        function ExtractPeakFeatures(app)
+             % Get the cells where there is data
+            dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+            try
+                togglePointer(app);
+                hWait = waitbar(0, 'Quantify peaks in data');
+                for c = dataFltr'
+                    waitbar(c/numel(dataFltr), hWait, 'Quantify peaks in data');
+                    tempTraces = app.imgT.DetrendData{c};
+                    Fs = app.imgT.Fs(c);
+                    nFrames = size(tempTraces, 1);
+                    synKeep = app.imgT.KeepSyn{c};
+                    nSyn = sum(synKeep);
+                    meanTrace = mean(tempTraces(:,synKeep),2);
+                    % Get the single synapse quantification
+                    synInt = cellfun(@mean, app.imgT.PeakInt{c});
+                    synProm = cellfun(@mean, app.imgT.PeakProm{c});
+                    synFreq = cellfun(@numel, app.imgT.PeakInt{c}) / (nFrames/Fs);
+                    synISI = cellfun(@(x) diff(x) / Fs, app.imgT.PeakLoc{c}, 'UniformOutput', false);
+                    if nSyn > 0
+                        % Mean, median, and variance for synapse
+                        app.imgT.Syn_Mean_Intensity(c) = mean(synInt(synKeep));
+                        app.imgT.Syn_Mean_Prominence(c) = mean(synProm(synKeep));
+                        app.imgT.Syn_Mean_Frequency(c) = mean(synFreq(synKeep));
+                        app.imgT.Syn_Mean_ISI(c) = mean(synFreq(synKeep));
+                        app.imgT.Syn_Median_Intensity(c) = median(synInt(synKeep));
+                        app.imgT.Syn_Median_Prominence(c) = median(synProm(synKeep));
+                        app.imgT.Syn_Median_Frequency(c) = median(synFreq(synKeep));
+                        app.imgT.Syn_Variance_Intensity(c) = var(synInt(synKeep));
+                        app.imgT.Syn_Variance_Prominence(c) = var(synProm(synKeep));
+                        app.imgT.Syn_Variance_Frequency(c) = var(synFreq(synKeep));
+                        % Histogram description of all the synapses in one cell
+                        app.imgT.Syn_Skewness_Intensity(c) = skewness(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
+                        app.imgT.Syn_Skewness_Prominence(c) = skewness(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
+                        app.imgT.Syn_Skewness_Frequency(c) = skewness(synFreq(synKeep), 0);
+                        app.imgT.Syn_Kurtosis_Intensity(c) = kurtosis(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
+                        app.imgT.Syn_Kurtosis_Prominence(c) = kurtosis(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
+                        app.imgT.Syn_Kurtosis_Frequency(c) = kurtosis(synFreq(synKeep), 0);
+                        % Coefficient of variation between the synapses
+                        app.imgT.Syn_CoV_Intensity(c) = sqrt(app.imgT.Syn_Variance_Intensity(c)) / app.imgT.Syn_Mean_Intensity(c);
+                        app.imgT.Syn_CoV_Prominence(c) = sqrt(app.imgT.Syn_Variance_Prominence(c)) / app.imgT.Syn_Mean_Prominence(c);
+                        app.imgT.Syn_CoV_Frequency(c) = sqrt(app.imgT.Syn_Variance_Frequency(c)) / app.imgT.Syn_Mean_Frequency(c);
+                        % Get the synchronous-based quantifications
+                        app.imgT.Sync_Frequency(c) = numel(app.imgT.Sync_PeakLocation{c}{1}) / (nFrames/Fs);
+                        app.imgT.Sync_Raw_MaxActiveSynapses(c) = max(app.imgT.PeakSync{c});
+                        app.imgT.Sync_Percentage_MaxActiveSynapses(c) = (max(app.imgT.PeakSync{c}) ./ nSyn * 100);
+                        app.imgT.Sync_Percentage_TimeActive(c) = sum(app.imgT.PeakSync{c} > 1) / nFrames * 100;
+                        app.imgT.Sync_Percentage_TimeSync(c) = sum(app.imgT.PeakSync{c} > nSyn *.1) / nFrames * 100;
+                        % Get the cell-based quantifications
+                        tempCellPeak = app.imgT.Sync_PeakLocation{c}{2};
+                        cellISI = diff(tempCellPeak) / Fs;
+                        app.imgT.Cell_Frequency(c) = numel(tempCellPeak) / (nFrames/Fs);
+                        app.imgT.Cell_Mean_ActiveSynapses(c) = mean(app.imgT.Sync_SynapseCount{c}{2});
+                        app.imgT.Cell_Mean_PercentageSynapses(c) = app.imgT.Cell_Mean_ActiveSynapses(c) / nSyn * 100;
+                        app.imgT.Cell_Mean_Intensity(c) = mean(meanTrace(tempCellPeak));
+                        app.imgT.Cell_Mean_InterSpikeInterval(c) = mean(cellISI);
+                        app.imgT.Cell_Median_ActiveSynapses(c) = median(app.imgT.Sync_SynapseCount{c}{2});
+                        app.imgT.Cell_Median_PercentageSynapses(c) = app.imgT.Cell_Median_ActiveSynapses(c) / nSyn * 100;
+                        app.imgT.Cell_Median_Intensity(c) = median(meanTrace(tempCellPeak));
+                        app.imgT.Cell_Median_InterSpikeInterval(c) = median(cellISI);
+                        app.imgT.Cell_Variance_ActiveSynapses(c) = var(app.imgT.Sync_SynapseCount{c}{2});
+                        app.imgT.Cell_Variance_Intensity(c) = var(meanTrace(tempCellPeak));
+                        app.imgT.Cell_Variance_InterSpikeInterval(c) = var(cellISI);
+                        app.imgT.Cell_CoV_ActiveSynapses(c) = sqrt(app.imgT.Cell_Variance_ActiveSynapses(c)) / app.imgT.Cell_Mean_ActiveSynapses(c);
+                        app.imgT.Cell_CoV_Intensity(c) = sqrt(app.imgT.Cell_Variance_Intensity(c)) / app.imgT.Cell_Mean_Intensity(c);
+                        app.imgT.Cell_CoV_InterSpikeInterval(c) = sqrt(app.imgT.Cell_Variance_InterSpikeInterval(c)) / app.imgT.Cell_Mean_InterSpikeInterval(c);
+                    else
+                        app.imgT.Syn_Mean_Intensity(c) = NaN;
+                        app.imgT.Syn_Mean_Prominence(c) = NaN;
+                        app.imgT.Syn_Mean_Frequency(c) = NaN;
+                        app.imgT.Syn_Median_Intensity(c) = NaN;
+                        app.imgT.Syn_Median_Prominence(c) = NaN;
+                        app.imgT.Syn_Median_Frequency(c) = NaN;
+                        app.imgT.Syn_Variance_Intensity(c) = NaN;
+                        app.imgT.Syn_Variance_Prominence(c) = NaN;
+                        app.imgT.Syn_Variance_Frequency(c) = NaN;
+                        app.imgT.Syn_Skewness_Intensity(c) = NaN;
+                        app.imgT.Syn_Skewness_Prominence(c) = NaN;
+                        app.imgT.Syn_Skewness_Frequency(c) = NaN;
+                        app.imgT.Syn_Kurtosis_Intensity(c) = NaN;
+                        app.imgT.Syn_Kurtosis_Prominence(c) = NaN;
+                        app.imgT.Syn_Kurtosis_Frequency(c) = NaN;
+                        app.imgT.Syn_CoV_Intensity(c) = NaN;
+                        app.imgT.Syn_CoV_Prominence(c) = NaN;
+                        app.imgT.Syn_CoV_Frequency(c) = NaN;
+                        app.imgT.Sync_Frequency(c) = NaN;
+                        app.imgT.Sync_Raw_MaxActiveSynapses(c) = NaN;
+                        app.imgT.Sync_Percentage_MaxActiveSynapses(c) = NaN;
+                        app.imgT.Sync_Percentage_TimeActive(c) = NaN;
+                        app.imgT.Sync_Percentage_TimeSync(c) = NaN;
+                        app.imgT.Cell_Frequency(c) = NaN;
+                        app.imgT.Cell_Mean_ActiveSynapses(c) = NaN;
+                        app.imgT.Cell_Mean_PercentageSynapses(c) = NaN;
+                        app.imgT.Cell_Mean_Intensity(c) = NaN;
+                        app.imgT.Cell_Mean_InterSpikeInterval(c) = NaN;
+                        app.imgT.Cell_Median_ActiveSynapses(c) = NaN;
+                        app.imgT.Cell_Median_PercentageSynapses(c) = NaN;
+                        app.imgT.Cell_Median_Intensity(c) = NaN;
+                        app.imgT.Cell_Median_InterSpikeInterval(c) = NaN;
+                        app.imgT.Cell_Variance_ActiveSynapses(c) = NaN;
+                        app.imgT.Cell_Variance_Intensity(c) = NaN;
+                        app.imgT.Cell_Variance_InterSpikeInterval(c) = NaN;
+                        app.imgT.Cell_CoV_ActiveSynapses(c) = NaN;
+                        app.imgT.Cell_CoV_Intensity(c) = NaN;
+                        app.imgT.Cell_CoV_InterSpikeInterval(c) = NaN;
+                    end
+                end
+                delete(hWait);
+                app.newChange = true;
+                togglePointer(app);
+            catch
+                delete(hWait);
+                togglePointer(app);
+                disp(c)
+            end
+        end
     end
     
     % Housekeeping methods
     methods (Access = public)
+        function updatePlot(app, varargin)
+            if nargin == 2
+                plotAx = varargin{1};
+            else
+                plotAx = app.UIAxesPlot;
+            end
+            cla(plotAx)
+            legend(plotAx, 'off');
+            % Filter the cells that needs to be plotted
+            tempData = app.imgT.DetrendData{app.currCell};
+            switch app.VisualizeDropDown.Value
+                case 'Gradient'
+                    tempData = gradient(tempData);
+                case 'Smooth'
+                    tempData = wdenoise(tempData, 5, 'DenoisingMethod', 'BlockJS');
+            end
+            Fs = app.imgT.Fs(app.currCell);
+            time = (0:length(tempData)-1) / Fs;
+            % Add some checks if there is stimulation needed
+            % Add some check for the type of plot (mean or individual)
+            switch app.PlotTypeButtonGroup.SelectedObject.Text
+                case 'All and mean'
+                    if app.activeFltr
+                        bSyn = app.imgT.KeepSyn{app.currCell};
+                    else
+                        bSyn = true(numel(app.imgT.KeepSyn{app.currCell}),1);
+                    end
+                    hold(plotAx, 'on')
+                    hLeg(1) = plot(plotAx, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
+                    plot(plotAx, time, tempData(:,2:end), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
+                    hLeg(2) = plot(plotAx, time, mean(tempData(:,bSyn),2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:), 'HitTest', 'off', 'ButtonDownFcn', '');
+                    if any(strcmp(app.imgT.Properties.VariableNames, 'Sync_PeakLocation'))
+                        if ~isempty(app.imgT.Sync_PeakLocation{app.currCell})
+                            tempNetLoc = app.imgT.Sync_PeakLocation{app.currCell}{2};
+                            tempNetInt = mean(tempData(:,bSyn),2);
+                            plot(plotAx, time(tempNetLoc), tempNetInt(tempNetLoc), 'sk', 'HitTest', 'off', 'ButtonDownFcn', '');
+                        end
+                    end
+                    legend(hLeg, {'All', 'Mean'}, 'Box', 'off', 'AutoUpdate', 'off');
+                case 'Single trace'
+                    hold(plotAx, 'on')
+                    synN = app.TextSynNumber.Value;
+                    synThr = calculateThreshold(app, tempData, synN);
+                    plot(plotAx, time, tempData(:,synN), 'Color', 'k', 'HitTest', 'off', 'ButtonDownFcn', '');
+                    plot(plotAx, time, synThr, '--', 'Color', [.5 .5 .5], 'HitTest', 'off', 'ButtonDownFcn', '');
+                    if any(strcmp(app.imgT.Properties.VariableNames, 'PeakLoc'))
+                        if ~isempty(app.imgT.PeakLoc{app.currCell})
+                            tempLocs = app.imgT.PeakLoc{app.currCell}{synN};
+                            tempInts = app.imgT.PeakInt{app.currCell}{synN};
+                            plot(plotAx, (tempLocs-1) / Fs, tempInts, 'or', 'HitTest', 'off', 'ButtonDownFcn', '');
+                        end
+                    end
+                    if app.FixYAxisButton.Value
+                        plotAx.YLim = app.yLim;
+                    end
+            end
+        end
+        
         function togglePointer(app)
             pointer = app.UIFigure.Pointer;
             if strcmp(pointer, 'arrow')
@@ -1007,6 +1211,7 @@ classdef GluTA < matlab.apps.AppBase
                     warndlg('Not implemented yet!', 'Detrend failed');
             end
             updatePlot(app);
+            figure(app.UIFigure);
         end
         
         function showMovie(app)
@@ -1108,11 +1313,21 @@ classdef GluTA < matlab.apps.AppBase
             else
                 if app.AddPeaksButton.Value
                     clickedPoint = event.IntersectionPoint(1);
-                    addManualPeak(app, clickedPoint);
+                    switch app.PlotTypeButtonGroup.SelectedObject.Text
+                        case 'All and mean'
+                            addNetworkPeak(app, clickedPoint);
+                        case 'Single trace'
+                            addManualPeak(app, clickedPoint);
+                    end
                 end
                 if app.DeletePeaksButton.Value
                     clickedPoint = event.IntersectionPoint(1);
-                    deleteManualPeak(app, clickedPoint);
+                    switch app.PlotTypeButtonGroup.SelectedObject.Text
+                        case 'All and mean'
+                            deleteNetworkPeak(app, clickedPoint);
+                        case 'Single trace'
+                            deleteManualPeak(app, clickedPoint);
+                    end
                 end
             end
         end
@@ -1128,63 +1343,109 @@ classdef GluTA < matlab.apps.AppBase
                 app.AddPeaksButton.Enable = 'on';
                 app.AddPeaksButton.Value = false;
                 app.DeletePeaksButton.Value = false;
-            end
-            if ~app.AddPeaksButton.Value
-                if ~isempty(app.tempAddPeak)
-                    synN = app.TextSynNumber.Value;
-                    [app.imgT.PeakLoc{app.currCell}{synN}, sortIdx] = sort(app.tempAddPeak.Loc);
-                    app.imgT.PeakInt{app.currCell}{synN} = app.tempAddPeak.Int(sortIdx);
-                    app.imgT.PeakProm{app.currCell}{synN} = app.tempAddPeak.Prom(sortIdx);
-                    app.imgT.PeakSNR{app.currCell}{synN} = app.tempAddPeak.SNR(sortIdx);
-                    app.tempAddPeak = [];
+                switch event.Source.Text
+                    case 'Add peaks'
+                        if ~isempty(app.tempAddPeak)
+                            if length(fieldnames(app.tempAddPeak)) == 2
+                                [app.imgT.Sync_PeakLocation{app.currCell}{2}, sortIdx] = sort(app.tempAddPeak.Loc);
+                                app.imgT.Sync_SynapseCount{app.currCell}{2} = app.tempAddPeak.Int(sortIdx);
+                                app.tempAddPeak = [];
+                            else
+                                synN = app.TextSynNumber.Value;
+                                [app.imgT.PeakLoc{app.currCell}{synN}, sortIdx] = sort(app.tempAddPeak.Loc);
+                                app.imgT.PeakInt{app.currCell}{synN} = app.tempAddPeak.Int(sortIdx);
+                                app.imgT.PeakProm{app.currCell}{synN} = app.tempAddPeak.Prom(sortIdx);
+                                app.imgT.PeakSNR{app.currCell}{synN} = app.tempAddPeak.SNR(sortIdx);
+                                app.tempAddPeak = [];
+                            end
+                        end
+                    case 'Delete peaks'
+                        if ~isempty(app.tempAddPeak)
+                            if length(fieldnames(app.tempAddPeak)) == 2
+                                lastKeep = find(diff(app.tempAddPeak.Loc) < 0, 1, 'first');
+                                app.imgT.Sync_PeakLocation{app.currCell}{2} = sort(app.tempAddPeak.Loc(1:lastKeep));
+                                app.imgT.Sync_SynapseCount{app.currCell}{2} = app.tempAddPeak.Int(1:lastKeep);
+                                app.tempAddPeak = [];
+                            else
+                                
+                            end
+                        end
                 end
+                drawnow();
+                updatePlot(app);
+                figure(app.UIFigure);
             end
-            drawnow();
-            updatePlot(app);
         end
         
-        function quantifySpikes(app)
+        function DetectCellPeaks(app)
             % Get the cells where there is data
             dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+            switch app.DetectEventButtonGroup.SelectedObject.Text
+                case 'Current list'
+                    dataFltr = find(contains(app.imgT.ExperimentID, app.List_CellID.Value));
+                case 'Selected FOV'
+                    dataFltr = find(contains(app.imgT.ExperimentID, app.List_CellID.Value) & contains(app.imgT.StimID, app.List_RecID.Value));
+            end
             try
-            for c = dataFltr'
+                togglePointer(app);
+                hWait = waitbar(0, 'Quantify peaks in data');
+                for c = dataFltr'
+                    waitbar(c/numel(dataFltr), hWait, 'Quantify peaks in data');
+                    tempTraces = app.imgT.DetrendData{c};
+                    Fs = app.imgT.Fs(c);
+                    [nFrames, nSyn] = size(tempTraces);
+                    synKeep = app.imgT.KeepSyn{c};
+                    % Get the % of active synapses
+                    tempData = calculateSynchronous(app, app.imgT.PeakLoc{c}, nFrames, nSyn, synKeep);
+                    nSyn = sum(synKeep);
+                    if nSyn > 0
+                        % Detect the peaks based on the detected peaks per synapse
+                        [netInt, netLoc] = findpeaks(tempData, 'MinPeakHeight', 0.1*nSyn);
+                        % Detect the peaks based on the average trace
+                        traceData = mean(app.imgT.DetrendData{c}(:,synKeep),2);
+                        smoothTrace = smoothdata(traceData);
+%                         smoothTrace = wdenoise(traceData);
+                        [~, smoothLoc] = findpeaks(smoothTrace, 'MinPeakProminence', std(smoothTrace));
+                        % Adjust the location of the peaks
+                        maxV = zeros(numel(smoothLoc),1);
+                        maxI = zeros(numel(smoothLoc),1);
+                        offset = round(app.Opt.PeakMinDistance+(app.Opt.PeakMaxDuration+app.Opt.PeakMinDuration)/2);
+                        for p = 1:numel(smoothLoc)
+                            offLow = max(1, smoothLoc(p)-offset);
+                            offHigh = min(numel(tempData), smoothLoc(p)+offset);
+                            [maxV(p), maxI(p)] = max(tempData(offLow:offHigh));
+                            maxI(p) = maxI(p) + offLow;
+                            if sum(maxI(p) == maxI(1:p)) > 1
+                                maxI(p) = 0;
+                            end
+                        end
+                        app.imgT.Sync_PeakLocation{c} = {netLoc maxI(maxI>0)};
+                        app.imgT.Sync_SynapseCount{c} = {netInt maxV(maxI>0)};
+                    else
+                        app.imgT.Sync_PeakLocation{c} = [];
+                        app.imgT.Sync_SynapseCount{c} = [];
+                    end
+                end
+                delete(hWait);
+                app.newChange = true;
+                togglePointer(app);
+                updatePlot(app);
+            catch
+                delete(hWait);
+                togglePointer(app);
+                disp(c)
+            end
+            figure(app.UIFigure);
+        end
+        
+        function updateSpikeQuantification(app)
+            for c=1:height(app.imgT)
                 tempTraces = app.imgT.DetrendData{c};
                 Fs = app.imgT.Fs(c);
                 [nFrames, nSyn] = size(tempTraces);
-                synKeep = app.imgT.KeepSyn{c};
-                % Get the intensity and frequency
-                synInt = cellfun(@mean, app.imgT.PeakInt{c});
-                synProm = cellfun(@mean, app.imgT.PeakProm{c});
-                synFreq = cellfun(@numel, app.imgT.PeakInt{c}) / (nFrames/Fs);
-                app.imgT.MeanInt(c) = mean(synInt(synKeep));
-                app.imgT.MeanProm(c) = mean(synProm(synKeep));
-                app.imgT.MeanFreq(c) = mean(synFreq(synKeep));
-                % Get the % of active synapses
-                tempData = calculateSynchronous(app, app.imgT.PeakLoc{c}, nFrames, nSyn, synKeep);
-                nSyn = sum(synKeep);
-                if nSyn > 0
-                    app.imgT.MaxActiveSyn(c) = (max(tempData) ./ nSyn * 100);
-                    app.imgT.TimeActive(c) = sum(tempData > 1) / nFrames * 100;
-                    app.imgT.TimeSync(c) = sum(tempData > nSyn *.1) / nFrames * 100;
-                    [netInt, netLoc] = findpeaks(tempData, 'MinPeakHeight', 0.1*nSyn);
-                    app.imgT.NetworkActive{c} = netLoc;
-                    app.imgT.NetworkSynapses{c} = netInt;
-                    traceData = mean(app.imgT.DetrendData{c}(:,synKeep),2);
-                    smoothTrace = smoothdata(traceData);
-                    [smoothInt, smoothLoc] = findpeaks(smoothTrace, 'MinPeakProminence', std(smoothTrace));
-                    app.imgT.NetworkFrequency{c} = [numel(netLoc) numel(smoothLoc)] / (nFrames/Fs);
-                else
-                    app.imgT.MaxActiveSyn(c) = 0;
-                    app.imgT.TimeActive(c) = 0;
-                    app.imgT.TimeSync(c) = 0;
-                    app.imgT.NetworkActive{c} = 0;
-                    app.imgT.NetworkSynapses{c} = 0;
-                    app.imgT.NetworkFrequency{c} = [0 0];
+                if ~isempty(app.imgT.Sync_PeakLocation{c})
+                    app.imgT.Cell_Frequency{c} = numel(app.imgT.Sync_PeakLocation{c}{2}) / (nFrames/Fs);
                 end
-            end
-            app.newChange = true;
-            catch
-                disp(c)
             end
         end
     end
@@ -1193,6 +1454,8 @@ classdef GluTA < matlab.apps.AppBase
     methods (Access = private)
         function populateTable(app, event)
             if strcmp(app.TabGroup.SelectedTab.Title, 'Table')
+                % Populate the table for all the cells
+                populateCellTable(app)
                 % Get the cell that we are looking at
                 tempTraces = app.imgT.DetrendData{app.currCell};
                 Fs = app.imgT.Fs(app.currCell);
@@ -1205,31 +1468,53 @@ classdef GluTA < matlab.apps.AppBase
                 app.UITableSingle.Data = table(synN, synInt, synFreq, snr, synKeep);
                 app.UITableSingle.ColumnEditable = [false, false, false, false, true];
                 plotRaster(app, tempTraces);
-                % Populate the table for all the cells
-                populateCellTable(app)
                 app.newChange = true;
             else
                 % Clear the table and the axis
-                cla(app.UIAxesRaster, 'reset');
+                cla(app.UIAxesRaster);
                 cla(app.UIAxesOverview, 'reset');
                 app.UITableSingle.Data = [];
             end
+            figure(app.UIFigure);
         end
         
         function populateCellTable(app)
-            quantifySpikes(app);
+            if ~any(strcmp(app.imgT.Properties.VariableNames, 'Cell_CoV_InterSpikeInterval'))
+                ExtractPeakFeatures(app);
+            else
+                updateSpikeQuantification(app)
+            end
             dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
             cellID = app.imgT{dataFltr, 'ExperimentID'};
             recID = app.imgT{dataFltr, 'ConditionID'};
             cellKeep = app.imgT{dataFltr, 'KeepCell'};
-            cellFreq = app.imgT{dataFltr, 'MeanFreq'};
-            cellInt = app.imgT{dataFltr, 'MeanInt'};
-            cellProm = app.imgT{dataFltr, 'MeanProm'};
-            netFreq = cell2mat(app.imgT{dataFltr, 'NetworkFrequency'});
-            cellActive = app.imgT{dataFltr, 'TimeActive'};
-            cellSync = app.imgT{dataFltr, 'TimeSync'};
-            cellMax = app.imgT{dataFltr, 'MaxActiveSyn'};
-            app.UITableAll.Data = table(cellID, recID, cellKeep, cellFreq, cellInt, cellProm, netFreq(:,2), cellActive, cellSync, cellMax);
+            Syn_Mean_Intensity = app.imgT.Syn_Mean_Intensity;
+            Syn_Mean_Prominence = app.imgT.Syn_Mean_Prominence;
+            Syn_Mean_Frequency = app.imgT.Syn_Mean_Frequency;
+            Syn_Skewness_Intensity = app.imgT.Syn_Skewness_Intensity;
+            Syn_Skewness_Prominence = app.imgT.Syn_Skewness_Prominence;
+            Syn_Skewness_Frequency = app.imgT.Syn_Skewness_Frequency;
+            Syn_CoV_Intensity = app.imgT.Syn_CoV_Intensity;
+            Syn_CoV_Prominence = app.imgT.Syn_CoV_Prominence;
+            Syn_CoV_Frequency = app.imgT.Syn_CoV_Frequency;
+            Sync_Frequency = app.imgT.Sync_Frequency;
+            Sync_Raw_MaxActiveSynapses = app.imgT.Sync_Raw_MaxActiveSynapses;
+            Sync_Percentage_MaxActiveSynapses = app.imgT.Sync_Percentage_MaxActiveSynapses;
+            Sync_Percentage_TimeActive = app.imgT.Sync_Percentage_TimeActive;
+            Sync_Percentage_TimeSync = app.imgT.Sync_Percentage_TimeSync;
+            Cell_Frequency = app.imgT.Cell_Frequency;
+            Cell_Mean_ActiveSynapses = app.imgT.Cell_Mean_ActiveSynapses;
+            Cell_Mean_PercentageSynapses = app.imgT.Cell_Mean_PercentageSynapses;
+            Cell_Mean_Intensity = app.imgT.Cell_Mean_Intensity;
+            Cell_Mean_InterSpikeInterval = app.imgT.Cell_Mean_InterSpikeInterval;
+            Cell_CoV_ActiveSynapses = app.imgT.Cell_CoV_ActiveSynapses;
+            Cell_CoV_Intensity = app.imgT.Cell_CoV_Intensity;
+            Cell_CoV_InterSpikeInterval = app.imgT.Cell_CoV_InterSpikeInterval;
+            app.UITableAll.Data = table(cellID, recID, cellKeep, Syn_Mean_Intensity, Syn_Mean_Prominence, Syn_Mean_Frequency,...
+                Syn_Skewness_Intensity, Syn_Skewness_Prominence, Syn_Skewness_Frequency, Syn_CoV_Intensity, Syn_CoV_Prominence,...
+                Syn_CoV_Frequency, Sync_Frequency, Sync_Raw_MaxActiveSynapses, Sync_Percentage_MaxActiveSynapses,...
+                Sync_Percentage_TimeActive, Sync_Percentage_TimeSync, Cell_Frequency, Cell_Mean_ActiveSynapses, Cell_Mean_PercentageSynapses,...
+                Cell_Mean_Intensity, Cell_Mean_InterSpikeInterval, Cell_CoV_ActiveSynapses, Cell_CoV_Intensity, Cell_CoV_InterSpikeInterval);
         end
         
         function plotRaster(app, tempTraces, varargin)
@@ -1247,7 +1532,7 @@ classdef GluTA < matlab.apps.AppBase
             cellSpace = max(tempRaster,[],'all') / 3;
             cellNum = (1:size(tempRaster,2)) * cellSpace;
             tempRaster = tempRaster + repmat(cellNum,size(tempRaster,1),1);
-            plot(plotAx1, time, tempRaster, 'k')
+            plot(plotAx1, time, tempRaster, 'k', 'HitTest', 'off', 'ButtonDownFcn', '');
             % Adjust the color based on the keep data
             if app.imgT.KeepCell(app.currCell)
                 cmap = [0 0 0; 0.9 0.9 0.9];
@@ -1271,10 +1556,15 @@ classdef GluTA < matlab.apps.AppBase
             box(plotAx1, 'off');
             plotAx1.TickDir = 'out';
             % Plot the average trace
+            cla(plotAx2, 'reset')
             tempSync = app.imgT.PeakSync{app.currCell};
             nSyn = size(tempRaster,2);
             yyaxis(plotAx2, 'left');
             area(plotAx2, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
+            tempNetwork = app.imgT.Sync_PeakLocation{app.currCell}{2};
+            tempNetwork1 = app.imgT.Sync_SynapseCount{app.currCell}{2};
+            hold(plotAx2, 'on')
+            plot(plotAx2, time(tempNetwork), tempNetwork1/nSyn*100, 'sk');
             ylabel(plotAx2, '% of synapses')
             yyaxis(plotAx2, 'right');
             plot(plotAx2, time, mean(tempTraces(:,keepSyn),2), 'r');
@@ -1376,8 +1666,8 @@ classdef GluTA < matlab.apps.AppBase
                             ylabel(plotAx, 'Keeped to total recording ratio')
                         otherwise
                             % First make sure that the data is up to date
-                            quantifySpikes(app)
-                            populateCellTable(app)
+                            %DetectCellPeaks(app)
+                            %populateCellTable(app)
                             cla(plotAx);
                             reset(plotAx);
                             if ~isempty(plotAx.Legend)
@@ -1564,6 +1854,11 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'off');
             app.FileMenuLabelCondition = uimenu(app.FileMenu, 'Text', 'Label condition',...
                 'MenuSelectedFcn', createCallbackFcn(app, @FileLabelConditionSelected, true), 'Separator', 'on');
+            app.QuantifyMenu = uimenu(app.UIFigure, 'Text', '&Quantify');
+            app.QuantifyMenuCellPeaks = uimenu(app.QuantifyMenu, 'Text', 'Cell Peaks',...
+                'MenuSelectedFcn', createCallbackFcn(app, @DetectCellPeaks, false));
+            app.QuantifyMenuFeature = uimenu(app.QuantifyMenu, 'Text', 'Extract Features',...
+                'MenuSelectedFcn', createCallbackFcn(app, @ExtractPeakFeatures, false));
             app.OptionMenu = uimenu(app.UIFigure, 'Text', '&Option');
             app.OptionMenuDebug = uimenu(app.OptionMenu, 'Text', '&Debug',...
                 'Accelerator', 'D', 'MenuSelectedFcn', createCallbackFcn(app, @OptionMenuDebugSelected, false));
@@ -1765,7 +2060,11 @@ classdef GluTA < matlab.apps.AppBase
                 'Enable', 'on', 'ButtonPushedFcn', createCallbackFcn(app, @ExportPlot, true));
             
             % Create a table to store all the cells info
-            app.UITableAll = uitable(app.TableTab, 'ColumnName', {'Cell'; 'Condition'; 'Keep'; 'Frequency'; 'Intensity'; 'Prominence'; 'Network Frequency'; 'Active'; 'Synchronous'; 'Max active'},...
+            app.UITableAll = uitable(app.TableTab, 'ColumnName', {'Cell'; 'Condition'; 'Keep'; 'Syn Mean Intensity'; 'Syn Mean Prominence'; 'Syn Mean Frequency';...
+                                                                  'Syn Skewness Intensity'; 'Syn Skewness Prominence'; 'Syn Skewness Frequency'; 'Syn CoV Intensity'; 'Syn CoV Prominence';...
+                                                                  'Syn CoV Frequency'; 'Sync Frequency'; 'Sync Raw MaxActiveSynapses'; 'Sync Percentage MaxActiveSynapses';...
+                                                                  'Sync Percentage TimeActive'; 'Sync Percentage TimeSync'; 'Cell Frequency'; 'Cell Mean ActiveSynapses'; 'Cell Mean PercentageSynapses';...
+                                                                  'Cell Mean Intensity'; 'Cell Mean InterSpikeInterval'; 'Cell CoV ActiveSynapses'; 'Cell CoV Intensity'; 'Cell CoV InterSpikeInterval'},...
                 'RowName', {}, 'Position', [1210 12 650 289],...
                 'CellSelectionCallback', createCallbackFcn(app, @TableClicked, true),...
                 'KeyReleaseFcn', createCallbackFcn(app, @TableSelectedCell, true));
