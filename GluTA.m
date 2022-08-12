@@ -146,6 +146,9 @@ classdef GluTA < matlab.apps.AppBase
                     244 180 0] / 255;	% Google YELLOW
         tempAddPeak = []; % Array to store the temporaney peaks with manual detection
         activeFltr = false; % Boolean to use only the active synapses in "Main"
+        regMovie = true; % Boolean to register the stimulation to the naive recording
+        stim = table('Size', [1 6], 'VariableTypes', ['string', repmat({'double'},1,5)],...
+            'VariableNames', {'StimID' 'Baseline' 'nTrains', 'nAP', 'FreqAP' 'Merged'});
     end
     
     % Interaction methods
@@ -201,6 +204,21 @@ classdef GluTA < matlab.apps.AppBase
                     populateCellID(app);
                     waitbar(0.9, hWait, 'Populate list of recordings');
                     populateRecID(app);
+                    % Check if the images need to be register
+                    if app.regMovie
+                        recID = unique(app.imgT.ExperimentID);
+                        nRec = numel(recID);
+                        for r=1:nRec
+                            waitbar(r/nRec, hWait, sprintf('Register the recordings %0.2f%%', r/nRec*100));
+                            recList = find(matches(app.imgT.ExperimentID, recID{r}));
+                            imgN = find(matches(app.imgT.StimID(recList), 'Naive')) + recList(1) -1;
+                            imgS = find(matches(app.imgT.StimID(recList), '05Hz')) + recList(1) -1;
+                            imgN = imread(app.imgT.Filename{imgN});
+                            imgS = imread(app.imgT.Filename{imgS});
+                            regEst = imregcorr(imgS, imgN, 'translation');
+                            app.imgT{recList,'RegEst'} = {regEst.T};
+                        end
+                    end
                     % Show that we are done
                     delete(hWait);
                     togglePointer(app);
@@ -225,8 +243,9 @@ classdef GluTA < matlab.apps.AppBase
             figure(app.UIFigure);
             imgT = app.imgT;
             opt = app.Opt;
+            stim = app.stim;
             ui.currCell = app.currCell;
-            save(savePath, 'imgT', 'opt', 'ui');
+            save(savePath, 'imgT', 'opt', 'stim', 'ui');
             cd(oldDir)
             togglePointer(app);
             app.newChange = false;
@@ -246,6 +265,15 @@ classdef GluTA < matlab.apps.AppBase
                 % First check if there is files at the current path
                 app.Opt = tempFiles.opt;
                 app.imgT = tempFiles.imgT;
+                app.stim = tempFiles.stim;
+                if height(app.stim) > 1
+                    app.TrainsIDsEdit.Value = app.stim.StimID(2);
+                    app.BaselineSecEdit.Value = app.stim.Baseline(2);
+                    app.TrainsNumEdit.Value = app.stim.nTrains(2);
+                    app.APNumEdit.Value = app.stim.nAP(2);
+                    app.APFreqEdit.Value = app.stim.FreqAP(2);
+                    app.MergedRecordingsCheckBox.Value = app.stim.Merged(2);
+                end
                 % Enable button selection
                 app.ImportROIsButton.Enable = 'on';
                 app.DetectROIsButton.Enable = 'on';
@@ -326,6 +354,22 @@ classdef GluTA < matlab.apps.AppBase
             app.Opt.Detrending = app.MethodDropDown.Value;
             app.Opt.DetrendSize = app.WindowSizeEdit.Value;
             app.Opt.DetectTrace = app.VisualizeDropDown.Value;
+            % Save the protocol
+            if any(matches(app.stim.StimID, app.TrainsIDsEdit.Value))
+                stimID = find(matches(app.stim.StimID, app.TrainsIDsEdit.Value));
+                app.stim.Baseline(stimID) = app.BaselineSecEdit.Value;
+                app.stim.nTrains(stimID) = app.TrainsNumEdit.Value;
+                app.stim.nAP(stimID) = app.APNumEdit.Value;
+                app.stim.FreqAP(stimID) = app.APFreqEdit.Value;
+                app.stim.Merged(stimID) = app.MergedRecordingsCheckBox.Value;
+            else
+                app.stim.StimID(end+1) = app.TrainsIDsEdit.Value;
+                app.stim.Baseline(end) = app.BaselineSecEdit.Value;
+                app.stim.nTrains(end) = app.TrainsNumEdit.Value;
+                app.stim.nAP(end) = app.APNumEdit.Value;
+                app.stim.FreqAP(end) = app.APFreqEdit.Value;
+                app.stim.Merged(end) = app.MergedRecordingsCheckBox.Value;
+            end
             app.SaveButton.Enable = 'off';
         end
        
@@ -392,7 +436,7 @@ classdef GluTA < matlab.apps.AppBase
                 case 'Current list'
                     cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
                 case 'Selected FOV'
-                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value) & contains(app.imgT.StimID, app.List_RecID.Value);
+                    cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value) & matches(app.imgT.StimID, app.List_RecID.Value);
             end
             % Get the cells number
             cellIDs = find(cellFltr);
@@ -416,6 +460,7 @@ classdef GluTA < matlab.apps.AppBase
                     synProm = cell(nSyn,1);
                     synSNR = cell(nSyn,1);
                     for s = 1:nSyn
+                        waitbar(cells/nCell, hWait, sprintf('Detecting peaks in data (%d/%d synapses)', s, nSyn));
                         tempThr = calculateThreshold(app, tempData, s);
                         peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
                         synInt{s} = peakInfo(:,1);
@@ -427,7 +472,12 @@ classdef GluTA < matlab.apps.AppBase
                     peakInt{cells} = synInt;
                     peakProm{cells} = synProm;
                     peakSNR{cells} = synSNR;
-                    keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
+                    if contains(app.imgT.StimID{app.currCell}, 'Hz')
+                        stimID = find(matches(app.stim.StimID, app.imgT.StimID{app.currCell}));
+                        keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*2/3, synLoc);
+                    else
+                        keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
+                    end
                     % Calculate the synchronous peaks (based on the minimum distance)
                     syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells});
                 end
@@ -665,16 +715,34 @@ classdef GluTA < matlab.apps.AppBase
             imgMin = min(imgFile, [], 'all');
             imgMax = max(imgFile, [], 'all');
             imgDisp = [imgMin imgMax] / 255;
+            if app.regMovie
+                if contains(app.List_RecID.Value, 'Hz')
+                    imgOut = imref2d(size(imgFile));
+                    regEst = affine2d(app.imgT.RegEst{app.currCell});
+                    imgFile = imwarp(imgFile, regEst, 'OutputView', imgOut);
+                end
+            end
             imshow(imadjust(imgFile, [0 1]), 'Parent', app.UIAxesMovie);
             app.UIAxesMovie.YLim = [0 size(imgFile,1)];
             app.UIAxesMovie.XLim = [0 size(imgFile,2)];
             set(app.UIAxesMovie, 'YDir', 'reverse');
             showROIs(app);
+            % Plot the data
             if any(strcmp(app.imgT.Properties.VariableNames, 'DetrendData'))
                 fixYAxis(app);
                 updatePlot(app);
                 app.KeepCellToggle.BackgroundColor = app.keepColor(app.imgT.KeepCell(app.currCell)+1,:);
                 app.KeepCellToggle.Value = app.imgT.KeepCell(app.currCell);
+            end
+            % Update the stimulation protocol
+            if any(matches(app.stim.StimID, app.List_RecID.Value))
+                stimID = find(matches(app.stim.StimID, app.List_RecID.Value));
+                app.TrainsIDsEdit.Value = app.stim.StimID(stimID);
+                app.BaselineSecEdit.Value = app.stim.Baseline(stimID);
+                app.TrainsNumEdit.Value = app.stim.nTrains(stimID);
+                app.APNumEdit.Value = app.stim.nAP(stimID);
+                app.APFreqEdit.Value = app.stim.FreqAP(stimID);
+                app.MergedRecordingsCheckBox.Value = app.stim.Merged(stimID);
             end
         end
         
@@ -744,7 +812,23 @@ classdef GluTA < matlab.apps.AppBase
                 % Calculate the FF0 data
                 if contains(app.imgT.StimID{c}, app.Opt.StimIDs)
                     % There is a baseline, use this to calculate the FF0
-                    baseInts = mean(tempData(1:20, :)); % I need to refine the protocols
+                    stimID = matches(app.stim.StimID, app.imgT.StimID{c});
+                    if app.stim{stimID, 'Merged'}==0
+                        baseFrames = round(0.7 * app.imgT.Fs(c) * app.stim{stimID,'Baseline'});
+                        baseInts = mean(tempData(1:baseFrames, :));
+                        ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
+                    else
+                        baseFrames = round(0.7 * app.imgT.Fs(c) * app.stim{stimID,'Baseline'});
+                        % There are multiple movies merged into 1. Split them and work on each movie separate
+                        movDiv = nFrames / app.stim{stimID, 'nTrains'};
+                        movS = 1:movDiv:nFrames;
+                        movE = movDiv:movDiv:nFrames;
+                        for m = 1:numel(movS)
+                            baseInts = mean(tempData(movS(m):movS(m)+baseFrames, :));
+                            ff0Data{c}(movS(m):movE(m),:) = (tempData(movS(m):movE(m),:) - repmat(baseInts, movDiv, 1)) ./ repmat(baseInts, movDiv, 1);
+                        end
+                        ff0Data{c}(movS,:) = NaN;
+                    end
                 else
                     % There is no baseline (aka spontaneous recording). Detect the median intensity in 10 region of the recordings to calculate the deltaF/F0
                     frameDividers = [1:round(nFrames / 10):nFrames, nFrames];
@@ -753,9 +837,8 @@ classdef GluTA < matlab.apps.AppBase
                         minVals(idx, :) = median(tempData(frameDividers(idx):frameDividers(idx+1), :));
                     end
                     baseInts = mean(minVals);
+                    ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
                 end
-                ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
-                % Get the detrended data
                 detData{c} = ff0Data{c};
                 catch ME
                     disp(ME);
@@ -765,7 +848,7 @@ classdef GluTA < matlab.apps.AppBase
             app.imgT.RawData = rawData;
             app.imgT.FF0Data = ff0Data;
             app.imgT.DetrendData = detData;
-            app.imgT.KeepCell = true(height(app.imgT));
+            app.imgT.KeepCell = true(height(app.imgT),1);
             updatePlot(app)
             app.AllFOVsRadio.Enable = 'on';
             app.CurrentListRadio.Enable = 'on';
@@ -822,7 +905,7 @@ classdef GluTA < matlab.apps.AppBase
                 case 'Zoom In'
                     if app.ZoomInButton.Value
                         oldXAxis = app.UIAxesPlot.XLim;
-                        newXAxis = [oldXAxis(1), oldXAxis(end)/10];
+                        newXAxis = [oldXAxis(1), 1]; % 1 is one second
                         app.UIAxesPlot.XLim = newXAxis;
                     else
                         app.UIAxesPlot.XLimMode = 'auto';
@@ -1095,13 +1178,30 @@ classdef GluTA < matlab.apps.AppBase
             Fs = app.imgT.Fs(app.currCell);
             time = (0:length(tempData)-1) / Fs;
             % Add some checks if there is stimulation needed
+            if contains(app.imgT.StimID{app.currCell}, 'Hz')
+                if any(matches(app.stim.StimID, app.imgT.StimID{app.currCell}))
+                    stimID = find(matches(app.stim.StimID, app.imgT.StimID{app.currCell}));
+                    xStim = app.stim.Baseline(stimID):1/app.stim.FreqAP(stimID):(app.stim.Baseline(stimID))+(1/app.stim.FreqAP(stimID))*(app.stim.nAP(stimID)-1);
+                    if app.stim.nTrains(stimID) > 1
+                        % There are multiple movies merged into 1. Split them and work on each movie separate
+                        movDiv = numel(time) / app.stim.nTrains(stimID);
+                        movS = 1:movDiv:numel(time);
+                        movS = time(movS);
+                        xStim = repmat(xStim, 1, app.stim.nTrains(stimID)) + repelem(movS, app.stim.nAP(stimID));
+                    end
+                    xPatch([1 4],:) = ones(2,1) * (xStim - 0.005);
+                    xPatch([2 3],:) = ones(2,1) * (xStim + 0.005);
+                    yPatch = repmat([0; 0; .1; .1], 1, numel(xStim));
+                    hStim = patch(plotAx, xPatch, yPatch, [.0 .8 .8], 'EdgeColor', 'none', 'FaceAlpha', .3, 'HitTest', 'off', 'ButtonDownFcn', '');
+                end
+            end
             % Add some check for the type of plot (mean or individual)
             switch app.PlotTypeButtonGroup.SelectedObject.Text
                 case 'All and mean'
                     if app.activeFltr
                         bSyn = app.imgT.KeepSyn{app.currCell};
                     else
-                        bSyn = true(numel(app.imgT.KeepSyn{app.currCell}),1);
+                        bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
                     end
                     hold(plotAx, 'on')
                     hLeg(1) = plot(plotAx, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
@@ -1131,6 +1231,9 @@ classdef GluTA < matlab.apps.AppBase
                     if app.FixYAxisButton.Value
                         plotAx.YLim = app.yLim;
                     end
+            end
+            if contains(app.imgT.StimID{app.currCell}, 'Hz')
+                hStim.YData = repmat(repelem(app.yLim',2), 1, numel(xStim));
             end
         end
         
@@ -1207,6 +1310,14 @@ classdef GluTA < matlab.apps.AppBase
                 end
                 delete(hWait);
             end
+            % Register the movie if needed
+            if app.regMovie
+                if contains(app.imgT.StimID{cellID}, 'Hz')
+                    imgOut = imref2d(size(timelapse(:,:,1)));
+                    regEst = affine2d(app.imgT.RegEst{app.currCell});
+                    timelapse = imwarp(timelapse, regEst, 'OutputView', imgOut);
+                end
+            end
         end
         
         function detrendData(app)
@@ -1265,32 +1376,152 @@ classdef GluTA < matlab.apps.AppBase
         function tempThr = calculateThreshold(app, tempData, synN)
             switch app.PeakThresholdMethodDropDown.Value
                 case 'MAD'
-                    tempThr = median(tempData(:,synN)) + mad(tempData(:,synN)) * app.PeakSigmaEdit.Value * (-1 / (sqrt(2) * erfcinv(3/2)));
-                    tempThr = repmat(tempThr, 1, length(tempData));
+                    tempThr = median(tempData(:,synN),'omitnan') + mad(tempData(:,synN)) * app.PeakSigmaEdit.Value * (-1 / (sqrt(2) * erfcinv(3/2)));
+                    tempThr = repmat(tempThr, length(tempData), 1);
                 case 'Rolling StDev'
                     winSize = app.PeakMaxDurationEdit.Value + app.PeakMinDistanceEdit.Value;
-                    tempMean = movmean(tempData(:,synN), winSize);
-                    tempStDev = std(diff(tempData(:,synN)));
+                    tempMean = movmean(tempData(:,synN), winSize, 'omitnan');
+                    tempStDev = std(diff(tempData(:,synN)), 'omitnan');
                     tempThr = tempMean + (app.PeakSigmaEdit.Value*tempStDev);
             end
         end
         
         function peakInfo = DetectPeaks(app, traceData, traceThr)
             minProm = app.PeakMinProminenceEdit.Value;
+            % If the user specified a negative prominence, calculate the prominence based on all the peaks
             if minProm < 0
                 [~,~,~,tp] = findpeaks(traceData);
                 minProm = mean(tp) + abs(minProm) * std(tp);
             end
-            minDura = app.PeakMinDurationEdit.Value;
-            maxDura = app.PeakMaxDurationEdit.Value;
-            minDist = app.PeakMinDistanceEdit.Value;
-           [tempPeak, tempLocs, ~, tempProm] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura, 'MinPeakDistance', minDist);
-            % Filter the event that are below the threshold
+            Fs = app.imgT.Fs(app.currCell);
+            minDura = app.PeakMinDurationEdit.Value / (1000/Fs); % (1000/Fs) = Frame duration in ms
+            maxDura = app.PeakMaxDurationEdit.Value / (1000/Fs);
+            minDist = app.PeakMinDistanceEdit.Value / (1000/Fs);
+            [tempPeak, tempLocs, ~, tempProm] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura, 'MinPeakDistance', minDist);
+            % First remove the peaks below the threshold
+            allPeakProm = median(tempProm);
             tempFltr = tempPeak > traceThr(tempLocs);
             tempPeak = tempPeak(tempFltr);
             tempLocs = tempLocs(tempFltr);
             tempProm = tempProm(tempFltr);
-            tempSNR = tempPeak / median(traceData);
+            % If there is a stimulation use that to define the peaks
+            if contains(app.imgT.StimID{app.currCell}, 'Hz')
+                % Define the stimulation protocol
+                time = (0:length(traceData)-1) / Fs;
+                stimID = find(matches(app.stim.StimID, app.imgT.StimID{app.currCell}));
+                xStim = app.stim.Baseline(stimID):1/app.stim.FreqAP(stimID):(app.stim.Baseline(stimID))+(1/app.stim.FreqAP(stimID))*(app.stim.nAP(stimID)-1);
+                if app.stim.nTrains(stimID) > 1
+                    % There are multiple movies merged into 1. Split them and work on each movie separate
+                    movDiv = numel(time) / app.stim.nTrains(stimID);
+                    movS = 1:movDiv:numel(time);
+                    movS = time(movS);
+                    xStim = round((repmat(xStim, 1, app.stim.nTrains(stimID)) + repelem(movS, app.stim.nAP(stimID)))*Fs);
+                else
+                    xStim = round(xStim*Fs);
+                end
+                % For the 0.5 / 5 / 10 / 20 Hz work with the detected peaks
+                if ~any(matches({'40Hz' '100Hz'}, app.imgT.StimID{app.currCell}))
+                    % First define the top N peaks, with N = 2 * number of APs (to make sure that all the possible peaks are selected)
+                    if numel(tempPeak) >= 2*numel(xStim)
+                        [tempPeak, sortIdx] = sort(tempPeak, 'descend');
+                        tempPeak = tempPeak(1:2*numel(xStim));
+                        tempLocs = tempLocs(sortIdx);
+                        tempLocs = tempLocs(1:2*numel(xStim));
+                        tempProm = tempProm(sortIdx);
+                        tempProm = tempProm(1:2*numel(xStim));
+                        [tempLocs, sortIdx] = sort(tempLocs);
+                        tempPeak = tempPeak(sortIdx);
+                        tempProm = tempProm(sortIdx);
+                    end
+                    %Redefine the peaks based on the location of the stimulation
+                    for stimN = 1:numel(xStim)
+                        newLocs = tempLocs - xStim(stimN);
+                        maxDist = 1;
+                        minIdx = [];
+                        while maxDist < 3 && numel(minIdx) == 0
+                            minIdx = find((0 < newLocs) & (newLocs <= maxDist)); % Assume that the peak is always after the AP
+                            maxDist = maxDist + 1;
+                        end
+                        % If no event are detected, check if there is an event at the same location of the AP
+                        if numel(minIdx) == 0
+                            minIdx = find(newLocs == 0);
+                        end
+                        % Store the event
+                        if numel(minIdx) == 1 && ~any(tempLocs(1:stimN-1) == tempLocs(minIdx))
+                            if stimN == 1
+                                tempPeak = tempPeak(minIdx:end);
+                                tempLocs = tempLocs(minIdx:end);
+                                tempProm = tempProm(minIdx:end);
+                            elseif stimN == numel(xStim)
+                                tempPeak = [tempPeak(1:stimN-1); tempPeak(minIdx)];
+                                tempLocs = [tempLocs(1:stimN-1); tempLocs(minIdx)];
+                                tempProm = [tempProm(1:stimN-1); tempProm(minIdx)];
+                            else
+                                tempPeak = [tempPeak(1:stimN-1); tempPeak(minIdx:end)];
+                                tempLocs = [tempLocs(1:stimN-1); tempLocs(minIdx:end)];
+                                tempProm = [tempProm(1:stimN-1); tempProm(minIdx:end)];
+                            end
+                        else
+                            if stimN < numel(xStim)
+                                tempPeak = [tempPeak(1:stimN-1); NaN; tempPeak(stimN:end)];
+                                tempLocs = [tempLocs(1:stimN-1); NaN; tempLocs(stimN:end)];
+                                tempProm = [tempProm(1:stimN-1); NaN; tempProm(stimN:end)];
+                            else
+                                tempPeak = [tempPeak(1:stimN-1); NaN];
+                                tempLocs = [tempLocs(1:stimN-1); NaN];
+                                tempProm = [tempProm(1:stimN-1); NaN];
+                            end
+                        end
+                    end
+                    tempSNR = tempProm / allPeakProm;
+                else
+                    % For the 40 and 100 Hz there can be only one peak per train
+                    nAP = app.stim.nAP(stimID);
+                    nTrains = app.stim.nTrains(stimID);
+                    xStim = reshape(xStim,5,5);
+                    % Add two frames at the end of the stimulation
+                    xStim(5,:) = xStim(5,:) + 2;
+                    tempSNR = nan(nTrains,1);
+                    for t = 1:nTrains
+                        minIdx = find((xStim(1,t) < tempLocs) & (tempLocs <= xStim(nAP,t)));
+                        if numel(minIdx) > 1
+                            % find the maximum peak
+                            [~, minIdx1] = max(tempPeak(minIdx));
+                            minIdx = minIdx(minIdx1);
+                        end
+                        if numel(minIdx) == 1
+                            if t == 1
+                                tempPeak = tempPeak(minIdx:end);
+                                tempLocs = tempLocs(minIdx:end);
+                                tempProm = tempProm(minIdx:end);
+                            elseif t == nTrains
+                                tempPeak = [tempPeak(1:t-1); tempPeak(minIdx)];
+                                tempLocs = [tempLocs(1:t-1); tempLocs(minIdx)];
+                                tempProm = [tempProm(1:t-1); tempProm(minIdx)];
+                            else
+                                tempPeak = [tempPeak(1:t-1); tempPeak(minIdx:end)];
+                                tempLocs = [tempLocs(1:t-1); tempLocs(minIdx:end)];
+                                tempProm = [tempProm(1:t-1); tempProm(minIdx:end)];
+                            end
+                        else
+                            if t < nTrains
+                                tempPeak = [tempPeak(1:t-1); NaN; tempPeak(t:end)];
+                                tempLocs = [tempLocs(1:t-1); NaN; tempLocs(t:end)];
+                                tempProm = [tempProm(1:t-1); NaN; tempProm(t:end)];
+                            else
+                                tempPeak = [tempPeak(1:t-1); NaN];
+                                tempLocs = [tempLocs(1:t-1); NaN];
+                                tempProm = [tempProm(1:t-1); NaN];
+                            end
+                        end
+                        % Instead of the SNR, calculate the area under the curve during the stimulation
+                        tempSNR(t) = sum(traceData(xStim(:,t)));
+                    end
+                end
+            else
+                [tempPeak, tempLocs, ~, tempProm] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura, 'MinPeakDistance', minDist);
+                tempSNR = tempPeak / median(traceData);
+            end
             % Calculate the boundaries
             %%%%%%%%%%%
             %%%LATER%%%
@@ -1308,9 +1539,11 @@ classdef GluTA < matlab.apps.AppBase
                 if keepSyn(s)
                     sStart = peakLocs{s};
                     for p = 1:length(sStart)
-                        xStart = max(1, sStart(p)-xVar);
-                        xEnd = min(nFrames, sStart(p)+xVar);
-                        tempSync(xStart:xEnd, s) = 1;
+                        if ~isnan(sStart(p))
+                            xStart = max(1, sStart(p)-xVar);
+                            xEnd = min(nFrames, sStart(p)+xVar);
+                            tempSync(xStart:xEnd, s) = 1;
+                        end
                     end
                 end
             end
@@ -1321,11 +1554,13 @@ classdef GluTA < matlab.apps.AppBase
             if event.Button == 3
                 if app.ZoomInButton.Value
                     oldXAxis = app.UIAxesPlot.XLim;
-                    xIncrement = (length(app.imgT.DetrendData{app.currCell}) / 10) / app.imgT.Fs(app.currCell) - 1;
                     if event.IntersectionPoint(1) > sum(oldXAxis)/2
-                        newXAxis = oldXAxis + xIncrement;
+                        newXAxis = oldXAxis + 0.8; % increment of 0.8 s
                     else
-                        newXAxis = oldXAxis - xIncrement;
+                        newXAxis = oldXAxis - 0.8;
+                        if newXAxis(1) < 0
+                            newXAxis = oldXAxis;
+                        end
                     end
                     app.UIAxesPlot.XLim = newXAxis;
                 end
@@ -2007,19 +2242,19 @@ classdef GluTA < matlab.apps.AppBase
             app.PeakThresholdMethodDropDownLabel = uilabel(app.PeakDetectionPanel, 'HorizontalAlignment', 'right', 'Position', [10 111 102 22], 'Text', 'Threshold method');
             app.PeakThresholdMethodDropDown = uidropdown(app.PeakDetectionPanel, 'Items', {'MAD', 'Rolling StDev'}, 'Position', [127 111 100 22], 'Value', app.Opt.PeakThreshold,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
-            app.PeakSigmaLabel = uilabel(app.PeakDetectionPanel, 'Position', [270 111 94 22], 'Text', 'Threshold sigma');
+            app.PeakSigmaLabel = uilabel(app.PeakDetectionPanel, 'Position', [240 111 94 22], 'Text', 'Threshold sigma');
             app.PeakSigmaEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [390 111 50 22], 'Value', app.Opt.PeakThrSigma,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.PeakMinProminenceLabel = uilabel(app.PeakDetectionPanel, 'Position', [14 79 124 22], 'Text', 'Minumum prominence');
-            app.PeakMinProminenceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [157 79 50 22], 'Value', app.Opt.PeakMinProm,...
+            app.PeakMinProminenceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [175 79 50 22], 'Value', app.Opt.PeakMinProm,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
-            app.PeakMinDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [271 79 107 22], 'Text', 'Minumum Duration');
+            app.PeakMinDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [240 79 130 22], 'Text', 'Minumum Duration (ms)');
             app.PeakMinDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [390 79 50 22], 'Value', app.Opt.PeakMinDuration,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
-            app.MinDistanceLabel = uilabel(app.PeakDetectionPanel, 'Position', [15 41 108 22], 'Text', 'Minumum Distance');
-            app.PeakMinDistanceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [158 41 50 22], 'Value', app.Opt.PeakMinDistance,...
+            app.MinDistanceLabel = uilabel(app.PeakDetectionPanel, 'Position', [15 41 140 22], 'Text', 'Minumum Distance (ms)');
+            app.PeakMinDistanceEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [175 41 50 22], 'Value', app.Opt.PeakMinDistance,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
-            app.MaxDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [270 41 106 22], 'Text', 'Maximum Duration');
+            app.MaxDurationLabel = uilabel(app.PeakDetectionPanel, 'Position', [240 41 130 22], 'Text', 'Maximum Duration (ms)');
             app.PeakMaxDurationEdit = uieditfield(app.PeakDetectionPanel, 'numeric', 'Position', [390 41 50 22], 'Value', app.Opt.PeakMaxDuration,...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             
@@ -2037,17 +2272,23 @@ classdef GluTA < matlab.apps.AppBase
 
             % Create Stimulation Protocol Panel
             app.StimulationProtocolPanel = uipanel(app.DetectionOptionsPanel, 'Title', 'Stimulation protocol', 'Position', [202 5 452 144]);
-            app.MergedRecordingsCheckBox = uicheckbox(app.StimulationProtocolPanel, 'Text', 'Merged recordings', 'Position', [179 59 144 22]);
+            app.MergedRecordingsCheckBox = uicheckbox(app.StimulationProtocolPanel, 'Text', 'Merged recordings', 'Position', [179 59 144 22],...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.BaselineSecLabel = uilabel(app.StimulationProtocolPanel, 'Position', [184 93 95 22], 'Text', 'Baseline time (s)');
-            app.BaselineSecEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [278 93 45 22], 'Value', 1);
+            app.BaselineSecEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [278 93 45 22], 'Value', 1,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.APNumLabel = uilabel(app.StimulationProtocolPanel, 'Position', [9 26 81 22], 'Text', 'Number of AP');
-            app.APNumEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [103 26 45 22], 'Value', 25);
+            app.APNumEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [103 26 45 22], 'Value', 25,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.APFreqLabel = uilabel(app.StimulationProtocolPanel, 'Position', [184 26 78 22], 'Text', 'AP frequency');
-            app.APFreqEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [278 26 45 22], 'Value', 5);
+            app.APFreqEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [278 26 45 22], 'Value', 5,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.TrainsNumLabel = uilabel(app.StimulationProtocolPanel, 'Position', [8 59 94 22], 'Text', 'Number of trains');
-            app.TrainsNumEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [102 59 45 22], 'Value', 1);
+            app.TrainsNumEdit = uieditfield(app.StimulationProtocolPanel, 'numeric', 'Position', [102 59 45 22], 'Value', 1,...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             app.TrainsIDsLabel = uilabel(app.StimulationProtocolPanel, 'Position', [8 93 52 22], 'Text', 'Identifier');
-            app.TrainsIDsEdit = uieditfield(app.StimulationProtocolPanel, 'text', 'Position', [102 93 45 22], 'Value', '5Hz');
+            app.TrainsIDsEdit = uieditfield(app.StimulationProtocolPanel, 'text', 'Position', [102 93 45 22], 'Value', '5Hz',...
+                'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
             
             % Create UITableSingle
             app.UITableSingle = uitable(app.TableTab, 'ColumnName', {'Synapse #'; 'Mean Int'; 'Freq'; 'SNR'; 'Keep'}, 'RowName', {}, 'Position', [25 12 381 888],...
