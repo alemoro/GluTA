@@ -265,14 +265,16 @@ classdef GluTA < matlab.apps.AppBase
                 % First check if there is files at the current path
                 app.Opt = tempFiles.opt;
                 app.imgT = tempFiles.imgT;
-                app.stim = tempFiles.stim;
-                if height(app.stim) > 1
-                    app.TrainsIDsEdit.Value = app.stim.StimID(2);
-                    app.BaselineSecEdit.Value = app.stim.Baseline(2);
-                    app.TrainsNumEdit.Value = app.stim.nTrains(2);
-                    app.APNumEdit.Value = app.stim.nAP(2);
-                    app.APFreqEdit.Value = app.stim.FreqAP(2);
-                    app.MergedRecordingsCheckBox.Value = app.stim.Merged(2);
+                if isfield(tempFiles, 'stim')
+                    app.stim = tempFiles.stim;
+                    if height(app.stim) > 1
+                        app.TrainsIDsEdit.Value = app.stim.StimID(2);
+                        app.BaselineSecEdit.Value = app.stim.Baseline(2);
+                        app.TrainsNumEdit.Value = app.stim.nTrains(2);
+                        app.APNumEdit.Value = app.stim.nAP(2);
+                        app.APFreqEdit.Value = app.stim.FreqAP(2);
+                        app.MergedRecordingsCheckBox.Value = app.stim.Merged(2);
+                    end
                 end
                 % Enable button selection
                 app.ImportROIsButton.Enable = 'on';
@@ -432,7 +434,8 @@ classdef GluTA < matlab.apps.AppBase
             % Get the list of recordings for the detection
             switch app.DetectEventButtonGroup.SelectedObject.Text
                 case 'All FOVs'
-                    cellFltr = contains(app.imgT.StimID, app.List_RecID.Value);
+                    cellFltr = matches(app.imgT.StimID, app.List_RecID.Value);
+                    %cellFltr = contains(app.imgT.StimID, 'Hz');
                 case 'Current list'
                     cellFltr = contains(app.imgT.ExperimentID, app.List_CellID.Value);
                 case 'Selected FOV'
@@ -447,7 +450,7 @@ classdef GluTA < matlab.apps.AppBase
             peakSNR = cell(nCell,1);
             keepSyn = cell(nCell,1);
             syncPeak = cell(nCell,1);
-            hWait = waitbar(0, 'Detecting peaks in data');
+            hWait = waitbar(0, 'Detecting peaks in data', 'Name', sprintf('Detecting %s', app.imgT.StimID{app.currCell}));
             try
                 for cells = 1:nCell
                     waitbar(cells/nCell, hWait, 'Detecting peaks in data');
@@ -460,7 +463,7 @@ classdef GluTA < matlab.apps.AppBase
                     synProm = cell(nSyn,1);
                     synSNR = cell(nSyn,1);
                     for s = 1:nSyn
-                        waitbar(cells/nCell, hWait, sprintf('Detecting peaks in data (%d/%d synapses)', s, nSyn));
+                        %waitbar(cells/nCell, hWait, sprintf('Detecting peaks in data (%d/%d synapses)', s, nSyn), 'Name', sprintf('Detecting %s', app.imgT.StimID{app.currCell}));
                         tempThr = calculateThreshold(app, tempData, s);
                         peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
                         synInt{s} = peakInfo(:,1);
@@ -474,12 +477,16 @@ classdef GluTA < matlab.apps.AppBase
                     peakSNR{cells} = synSNR;
                     if contains(app.imgT.StimID{app.currCell}, 'Hz')
                         stimID = find(matches(app.stim.StimID, app.imgT.StimID{app.currCell}));
-                        keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*2/3, synLoc);
+                        if any(matches({'40Hz', '100Hz'}, app.imgT.StimID{app.currCell}))
+                            keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < app.stim.nTrains(stimID)*2/3, synLoc);
+                        else
+                            keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*2/3, synLoc);
+                        end
                     else
                         keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
                     end
                     % Calculate the synchronous peaks (based on the minimum distance)
-                    syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells});
+                    syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells}, Fs, contains(app.imgT.StimID{app.currCell}, 'Hz'));
                 end
                 app.imgT.PeakLoc(cellIDs) = peakLoc;
                 app.imgT.PeakInt(cellIDs) = peakInt;
@@ -798,58 +805,57 @@ classdef GluTA < matlab.apps.AppBase
             for c = find(cellFltr)'
                 waitbar(c/numel(cellFltr), hWait, sprintf('Loading ROIs data %0.2f%%', c/numel(cellFltr)*100));
                 try
-                % Load the movie
-                currMovie = double(loadMovie(app, c, true));
-                nFrames = size(currMovie,3);
-                % Get the ROIs data
-                roiSet = app.imgT.RoiSet{c};
-                nRoi = numel(roiSet);
-                tempData = zeros(nFrames, nRoi);
-                for r = 1:nRoi
-                    tempData(:,r) = mean(currMovie(roiSet{r}(1):roiSet{r}(3), roiSet{r}(2):roiSet{r}(4), :), [1 2]);
-                end
-                rawData{c} = tempData;
-                % Calculate the FF0 data
-                if contains(app.imgT.StimID{c}, app.Opt.StimIDs)
-                    % There is a baseline, use this to calculate the FF0
-                    stimID = matches(app.stim.StimID, app.imgT.StimID{c});
-                    if app.stim{stimID, 'Merged'}==0
-                        baseFrames = round(0.7 * app.imgT.Fs(c) * app.stim{stimID,'Baseline'});
-                        baseInts = mean(tempData(1:baseFrames, :));
-                        ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
-                    else
-                        baseFrames = round(0.7 * app.imgT.Fs(c) * app.stim{stimID,'Baseline'});
-                        % There are multiple movies merged into 1. Split them and work on each movie separate
-                        movDiv = nFrames / app.stim{stimID, 'nTrains'};
-                        movS = 1:movDiv:nFrames;
-                        movE = movDiv:movDiv:nFrames;
-                        for m = 1:numel(movS)
-                            baseInts = mean(tempData(movS(m):movS(m)+baseFrames, :));
-                            ff0Data{c}(movS(m):movE(m),:) = (tempData(movS(m):movE(m),:) - repmat(baseInts, movDiv, 1)) ./ repmat(baseInts, movDiv, 1);
+                    % Load the movie
+                    currMovie = double(loadMovie(app, c, true));
+                    nFrames = size(currMovie,3);
+                    % Get the ROIs data
+                    roiSet = app.imgT.RoiSet{c};
+                    nRoi = numel(roiSet);
+                    tempData = zeros(nFrames, nRoi);
+                    for r = 1:nRoi
+                        tempData(:,r) = mean(currMovie(roiSet{r}(1):roiSet{r}(3), roiSet{r}(2):roiSet{r}(4), :), [1 2]);
+                    end
+                    rawData{c} = tempData;
+                    % Calculate the FF0 data
+                    if contains(app.imgT.StimID{c}, app.Opt.StimIDs)
+                        % There is a baseline, use this to calculate the FF0
+                        stimID = matches(app.stim.StimID, app.imgT.StimID{c});
+                        if app.stim{stimID, 'Merged'}==0
+                            baseFrames = round(0.7 * app.imgT.Fs(c) * app.stim{stimID,'Baseline'});
+                            baseInts = mean(tempData(1:baseFrames, :));
+                            ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
+                        else
+                            baseFrames = round(0.7 * app.imgT.Fs(c) * app.stim{stimID,'Baseline'});
+                            % There are multiple movies merged into 1. Split them and work on each movie separate
+                            movDiv = nFrames / app.stim{stimID, 'nTrains'};
+                            movS = 1:movDiv:nFrames;
+                            movE = movDiv:movDiv:nFrames;
+                            for m = 1:numel(movS)
+                                baseInts = mean(tempData(movS(m):movS(m)+baseFrames, :));
+                                ff0Data{c}(movS(m):movE(m),:) = (tempData(movS(m):movE(m),:) - repmat(baseInts, movDiv, 1)) ./ repmat(baseInts, movDiv, 1);
+                            end
+                            ff0Data{c}(movS,:) = NaN;
                         end
-                        ff0Data{c}(movS,:) = NaN;
+                    else
+                        % There is no baseline (aka spontaneous recording). Detect the median intensity in 10 region of the recordings to calculate the deltaF/F0
+                        frameDividers = [1:round(nFrames / 10):nFrames, nFrames];
+                        minVals = zeros(10, nRoi);
+                        for idx = 1:10
+                            minVals(idx, :) = median(tempData(frameDividers(idx):frameDividers(idx+1), :));
+                        end
+                        baseInts = mean(minVals);
+                        ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
                     end
-                else
-                    % There is no baseline (aka spontaneous recording). Detect the median intensity in 10 region of the recordings to calculate the deltaF/F0
-                    frameDividers = [1:round(nFrames / 10):nFrames, nFrames];
-                    minVals = zeros(10, nRoi);
-                    for idx = 1:10
-                        minVals(idx, :) = median(tempData(frameDividers(idx):frameDividers(idx+1), :));
-                    end
-                    baseInts = mean(minVals);
-                    ff0Data{c} = (tempData - repmat(baseInts, nFrames, 1)) ./ repmat(baseInts, nFrames, 1);
-                end
-                detData{c} = ff0Data{c};
+                    detData{c} = ff0Data{c};
                 catch ME
                     disp(ME);
                 end
             end
             delete(hWait);
-            app.imgT.RawData = rawData;
-            app.imgT.FF0Data = ff0Data;
-            app.imgT.DetrendData = detData;
-            app.imgT.KeepCell = true(height(app.imgT),1);
-            updatePlot(app)
+            app.imgT.RawData(cellFltr) = rawData(cellFltr);
+            app.imgT.FF0Data(cellFltr) = ff0Data(cellFltr);
+            app.imgT.DetrendData(cellFltr) = detData(cellFltr);
+            app.imgT.KeepCell(cellFltr) = true(sum(cellFltr),1);
             app.AllFOVsRadio.Enable = 'on';
             app.CurrentListRadio.Enable = 'on';
             app.SelectedFOVRadio.Enable = 'on';
@@ -860,6 +866,7 @@ classdef GluTA < matlab.apps.AppBase
             app.DetectPeaksButton.Enable = 'on';
             app.MeasureROIsButton.Enable = 'off';
             app.newChange = true;
+            updatePlot(app)
         end
         
         function switchPlotType(app)
@@ -998,7 +1005,11 @@ classdef GluTA < matlab.apps.AppBase
                     aRaster = axes(hRaster);
                     hOverview = figure('Name', 'Overview', 'NumberTitle', 'off', 'Color', 'white', 'Position', [433 12 726 289]);
                     aOverview = axes(hOverview);
-                    plotRaster(app, tempTraces, aRaster, aOverview);
+                    if contains(app.imgT.StimID{app.currCell}, 'Hz')
+                        plotRasterStim(app, tempTraces, aRaster, aOverview);
+                    else
+                        plotRaster(app, tempTraces, aRaster, aOverview);
+                    end
                 case 'Export trace'
                     hTrace = figure('Name', 'Trace', 'NumberTitle', 'off', 'Color', 'white', 'Position', [870 12 990 327]);
                     aTrace = axes(hTrace);
@@ -1066,10 +1077,10 @@ classdef GluTA < matlab.apps.AppBase
                         app.imgT.Syn_Skewness_Prominence(c) = skewness(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
                         app.imgT.Syn_Skewness_Frequency(c) = skewness(synFreq(synKeep), 0);
                         app.imgT.Syn_Skewness_ISI(c) = skewness(cell2mat(synISI(synKeep)), 0);
-                        app.imgT.Syn_Kurtosis_Intensity(c) = kurtosis(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
-                        app.imgT.Syn_Kurtosis_Prominence(c) = kurtosis(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
-                        app.imgT.Syn_Kurtosis_Frequency(c) = kurtosis(synFreq(synKeep), 0);
-                        app.imgT.Syn_Kurtosis_ISI(c) = kurtosis(cell2mat(synISI(synKeep)), 0);
+                        app.imgT.Syn_Kurtosis_Intensity(c) = kurtosis(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0) -3;
+                        app.imgT.Syn_Kurtosis_Prominence(c) = kurtosis(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0) -3;
+                        app.imgT.Syn_Kurtosis_Frequency(c) = kurtosis(synFreq(synKeep), 0) -3;
+                        app.imgT.Syn_Kurtosis_ISI(c) = kurtosis(cell2mat(synISI(synKeep)), 0) -3;
                         % Coefficient of variation between the synapses
                         app.imgT.Syn_CoV_Intensity(c) = sqrt(app.imgT.Syn_Variance_Intensity(c)) / app.imgT.Syn_Mean_Intensity(c);
                         app.imgT.Syn_CoV_Prominence(c) = sqrt(app.imgT.Syn_Variance_Prominence(c)) / app.imgT.Syn_Mean_Prominence(c);
@@ -1434,6 +1445,7 @@ classdef GluTA < matlab.apps.AppBase
                         tempProm = tempProm(sortIdx);
                     end
                     %Redefine the peaks based on the location of the stimulation
+                    tempSNR = nan(numel(xStim),1);
                     for stimN = 1:numel(xStim)
                         newLocs = tempLocs - xStim(stimN);
                         maxDist = 1;
@@ -1472,8 +1484,14 @@ classdef GluTA < matlab.apps.AppBase
                                 tempProm = [tempProm(1:stimN-1); NaN];
                             end
                         end
+                        % Instead of the SNR, calculate the area under the curve during the stimulation
+                        if ~isnan(tempPeak(stimN))
+                            % First remove the offset (I don't care if it's goes below 0, that's only due to calculating the DF/F0)
+                            aucData = traceData(xStim(stimN)-1:xStim(stimN)+3);
+                            aucData = aucData+abs(min(aucData));
+                            tempSNR(stimN) = trapz(1/Fs, aucData);
+                        end
                     end
-                    tempSNR = tempProm / allPeakProm;
                 else
                     % For the 40 and 100 Hz there can be only one peak per train
                     nAP = app.stim.nAP(stimID);
@@ -1515,7 +1533,11 @@ classdef GluTA < matlab.apps.AppBase
                             end
                         end
                         % Instead of the SNR, calculate the area under the curve during the stimulation
-                        tempSNR(t) = sum(traceData(xStim(:,t)));
+                        if ~isnan(tempPeak(t))
+                            aucData = traceData(xStim(:,t));
+                            aucData = aucData+abs(min(aucData));
+                            tempSNR(t) = trapz(1/Fs, aucData);
+                        end
                     end
                 end
             else
@@ -1532,16 +1554,21 @@ classdef GluTA < matlab.apps.AppBase
             end
         end
         
-        function syncData = calculateSynchronous(app, peakLocs, nFrames, nSyn, keepSyn)
+        function syncData = calculateSynchronous(app, peakLocs, nFrames, nSyn, keepSyn, Fs, bStim)
             tempSync = zeros(nFrames, nSyn);
-            xVar = app.Opt.PeakMinDuration;
+            xVar = round(app.Opt.PeakMinDuration / (1000/Fs));
             for s = 1:nSyn
                 if keepSyn(s)
                     sStart = peakLocs{s};
                     for p = 1:length(sStart)
                         if ~isnan(sStart(p))
-                            xStart = max(1, sStart(p)-xVar);
-                            xEnd = min(nFrames, sStart(p)+xVar);
+                            if ~bStim
+                                xStart = max(1, sStart(p)-xVar);
+                                xEnd = min(nFrames, sStart(p)+xVar);
+                            else
+                                xStart = sStart(p);
+                                xEnd = sStart(p);
+                            end
                             tempSync(xStart:xEnd, s) = 1;
                         end
                     end
@@ -1650,7 +1677,7 @@ classdef GluTA < matlab.apps.AppBase
                     [nFrames, nSyn] = size(tempTraces);
                     synKeep = app.imgT.KeepSyn{c};
                     % Get the % of active synapses
-                    tempData = calculateSynchronous(app, app.imgT.PeakLoc{c}, nFrames, nSyn, synKeep);
+                    tempData = calculateSynchronous(app, app.imgT.PeakLoc{c}, nFrames, nSyn, synKeep, Fs, contains(app.imgT.StimID{c}, 'Hz'));
                     nSyn = sum(synKeep);
                     if nSyn > 0
                         % Detect the peaks based on the detected peaks per synapse
@@ -1702,26 +1729,166 @@ classdef GluTA < matlab.apps.AppBase
                 end
             end
         end
+        
+        function ExctractStimFeatures(app)
+            % Get the cells where there is data
+            dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+            try
+                togglePointer(app);
+                hWait = waitbar(0, 'Quantify peaks in data');
+                for c = dataFltr'
+                    waitbar(c/numel(dataFltr), hWait, 'Quantify peaks in data');
+                    tempTraces = app.imgT.DetrendData{c};
+                    Fs = app.imgT.Fs(c);
+                    nFrames = size(tempTraces, 1);
+                    synKeep = app.imgT.KeepSyn{c}; % A synapse is consider positive when it responded to 2/3 of the APs
+                    nSyn = sum(synKeep);
+                    % Get the information on the stimulation
+                    stimID = find(matches(app.stim.StimID, app.imgT.StimID(c)));
+                    meanTrace = mean(tempTraces(:,synKeep),2, 'omitnan');
+                    time = (0:length(tempTraces)-1) / Fs;
+                    xStim = app.stim.Baseline(stimID):1/app.stim.FreqAP(stimID):(app.stim.Baseline(stimID))+(1/app.stim.FreqAP(stimID))*(app.stim.nAP(stimID)-1);
+                    if app.stim.nTrains(stimID) > 1
+                        % There are multiple movies merged into 1. Split them and work on each movie separate
+                        movDiv = numel(time) / app.stim.nTrains(stimID);
+                        movS = 1:movDiv:numel(time);
+                        movS = time(movS);
+                        xStim = round((repmat(xStim, 1, app.stim.nTrains(stimID)) + repelem(movS, app.stim.nAP(stimID)))*Fs);
+                    else
+                        xStim = round(xStim*Fs);
+                    end
+                    nAP = numel(xStim);
+                    % Get the single synapse quantification
+                    synInt = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakInt{c});
+                    synProm = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakProm{c});
+                    synRes = cellfun(@(x )sum(~isnan(x)), app.imgT.PeakInt{c}) / nAP * 100;
+                    SynAUC = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakSNR{c});
+                    stimRes = arrayfun(@(x) app.imgT.PeakSync{c}(x-1:x+1), xStim, 'UniformOutput', false);
+                    stimRes = cell2mat(stimRes);
+                    stimRes = stimRes(3,:);
+                    if nSyn > 0
+%                         % Mean, median, and variance for synapse
+%                         app.imgT.Syn_Mean_Intensity(c) = mean(synInt(synKeep));
+%                         app.imgT.Syn_Mean_Prominence(c) = mean(synProm(synKeep));
+%                         app.imgT.Syn_Mean_Resiliance(c) = mean(synRes(synKeep));
+%                         app.imgT.Syn_Mean_AUC(c) = mean(SynAUC(synKeep));
+%                         app.imgT.Syn_Median_Intensity(c) = median(synInt(synKeep));
+%                         app.imgT.Syn_Median_Prominence(c) = median(synProm(synKeep));
+%                         app.imgT.Syn_Median_Resiliance(c) = median(synRes(synKeep));
+%                         app.imgT.Syn_Median_AUC(c) = median(SynAUC(synKeep));
+%                         app.imgT.Syn_Variance_Intensity(c) = var(synInt(synKeep));
+%                         app.imgT.Syn_Variance_Prominence(c) = var(synProm(synKeep));
+%                         app.imgT.Syn_Variance_Resiliance(c) = var(synRes(synKeep));
+%                         app.imgT.Syn_Variance_AUC(c) = var(SynAUC(synKeep));
+%                         % Histogram description of all the synapses in one cell
+%                         app.imgT.Syn_Skewness_Intensity(c) = skewness(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
+%                         app.imgT.Syn_Skewness_Prominence(c) = skewness(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
+%                         app.imgT.Syn_Skewness_AUC(c) = skewness(cell2mat(app.imgT.PeakSNR{c}(synKeep)), 0);
+%                         app.imgT.Syn_Kurtosis_Intensity(c) = kurtosis(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0) -3;
+%                         app.imgT.Syn_Kurtosis_Prominence(c) = kurtosis(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0) -3;
+%                         app.imgT.Syn_Kurtosis_AUC(c) = kurtosis(cell2mat(app.imgT.PeakSNR{c}(synKeep)), 0) -3;
+%                         % Coefficient of variation between the synapses
+%                         app.imgT.Syn_CoV_Intensity(c) = sqrt(app.imgT.Syn_Variance_Intensity(c)) / app.imgT.Syn_Mean_Intensity(c);
+%                         app.imgT.Syn_CoV_Prominence(c) = sqrt(app.imgT.Syn_Variance_Prominence(c)) / app.imgT.Syn_Mean_Prominence(c);
+%                         app.imgT.Syn_CoV_Resiliance(c) = sqrt(app.imgT.Syn_Variance_Resiliance(c)) / app.imgT.Syn_Mean_Resiliance(c);
+%                         app.imgT.Syn_CoV_AUC(c) = sqrt(app.imgT.Syn_Variance_AUC(c)) / app.imgT.Syn_Mean_AUC(c);
+                        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                        % QUANTAL ANALYSIS FOR THE PEAKS? SEE 10.1038/s41467-022-31070-4 %
+                        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                        % Get the stimulation-based quantifications
+                        app.imgT.Stim_Resiliance{c} = stimRes / nSyn * 100;
+%                         app.imgT.Stim_FirstEvoked(c) = mean(cellfun(@(x) x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
+%                         app.imgT.Stim_PPR(c) = mean(cellfun(@(x) x(2)/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
+%                         app.imgT.Stim_FFR(c) = mean(cellfun(@(x) x(min(5, nAP))/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan'); % Fifth to First Ratio
+%                         app.imgT.Stim_Raw_MaxActiveSynapses(c) = max(app.imgT.PeakSync{c});
+%                         app.imgT.Stim_Percentage_MaxActiveSynapses(c) = (max(app.imgT.PeakSync{c}) ./ nSyn * 100);
+                    else
+                        % Mean, median, and variance for synapse
+                        app.imgT.Syn_Mean_Intensity(c) = NaN;
+                        app.imgT.Syn_Mean_Prominence(c) = NaN;
+                        app.imgT.Syn_Mean_Resiliance(c) = NaN;
+                        app.imgT.Syn_Mean_AUC(c) = NaN;
+                        app.imgT.Syn_Median_Intensity(c) = NaN;
+                        app.imgT.Syn_Median_Prominence(c) = NaN;
+                        app.imgT.Syn_Median_Resiliance(c) = NaN;
+                        app.imgT.Syn_Median_AUC(c) = NaN;
+                        app.imgT.Syn_Variance_Intensity(c) = NaN;
+                        app.imgT.Syn_Variance_Prominence(c) = NaN;
+                        app.imgT.Syn_Variance_Resiliance(c) = NaN;
+                        app.imgT.Syn_Variance_AUC(c) = NaN;
+                        % Histogram description of all the synapses in one cell
+                        app.imgT.Syn_Skewness_Intensity(c) = NaN;
+                        app.imgT.Syn_Skewness_Prominence(c) = NaN;
+                        app.imgT.Syn_Skewness_AUC(c) = NaN;
+                        app.imgT.Syn_Kurtosis_Intensity(c) = NaN;
+                        app.imgT.Syn_Kurtosis_Prominence(c) = NaN;
+                        app.imgT.Syn_Kurtosis_AUC(c) = NaN;
+                        % Coefficient of variation between the synapses
+                        app.imgT.Syn_CoV_Intensity(c) = NaN;
+                        app.imgT.Syn_CoV_Prominence(c) = NaN;
+                        app.imgT.Syn_CoV_Resiliance(c) = NaN;
+                        app.imgT.Syn_CoV_AUC(c) = NaN;
+                        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                        % QUANTAL ANALYSIS FOR THE PEAKS? SEE 10.1038/s41467-022-31070-4 %
+                        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                        % Get the stimulation-based quantifications
+                        app.imgT.Stim_Resiliance{c} = NaN;
+                        app.imgT.Stim_FirstEvoked(c) = NaN;
+                        app.imgT.Stim_PPR(c) = NaN;
+                        app.imgT.Stim_FFR(c) = NaN;
+                        app.imgT.Stim_Raw_MaxActiveSynapses(c) = NaN;
+                        app.imgT.Stim_Percentage_MaxActiveSynapses(c) = NaN;
+                        % Since there is no active synapse mark the cell
+                        app.imgT.KeepCell(c) = false;
+                    end
+                end
+                delete(hWait);
+                togglePointer(app);
+            catch ME
+                delete(hWait);
+                togglePointer(app);
+                disp(c)
+            end
+        end
     end
     
-    % Method for table tab
+    % Method for table tab for Naive recordings
     methods (Access = private)
         function populateTable(app, event)
             if strcmp(app.TabGroup.SelectedTab.Title, 'Table')
-                % Populate the table for all the cells
+                % Populate the table for all the cells if they are naive recordings
                 populateCellTable(app)
                 % Get the cell that we are looking at
                 tempTraces = app.imgT.DetrendData{app.currCell};
                 Fs = app.imgT.Fs(app.currCell);
                 [nFrames, nSyn] = size(tempTraces);
+                time = (0:nFrames-1) / Fs;
                 synN = (1:nSyn)';
-                synInt = cellfun(@mean, app.imgT.PeakProm{app.currCell});
-                synFreq = cellfun(@numel, app.imgT.PeakInt{app.currCell}) / (nFrames/Fs);
-                snr = cellfun(@mean, app.imgT.PeakSNR{app.currCell});
+                synInt = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakProm{app.currCell});
+                snr = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakSNR{app.currCell});
                 synKeep = app.imgT.KeepSyn{app.currCell};
+                if all(contains(app.imgT.StimID, 'Naive'))
+                    synFreq = cellfun(@numel, app.imgT.PeakInt{app.currCell}) / (nFrames/Fs);
+                    plotRaster(app, tempTraces);
+                elseif all(contains(app.imgT.StimID, 'Hz'))
+                    % Get the information on the stimulation
+                    stimID = find(matches(app.stim.StimID, app.imgT.StimID(app.currCell)));
+                    xStim = app.stim.Baseline(stimID):1/app.stim.FreqAP(stimID):(app.stim.Baseline(stimID))+(1/app.stim.FreqAP(stimID))*(app.stim.nAP(stimID)-1);
+                    if app.stim.nTrains(stimID) > 1
+                        % There are multiple movies merged into 1. Split them and work on each movie separate
+                        movDiv = numel(time) / app.stim.nTrains(stimID);
+                        movS = 1:movDiv:numel(time);
+                        movS = time(movS);
+                        xStim = round((repmat(xStim, 1, app.stim.nTrains(stimID)) + repelem(movS, app.stim.nAP(stimID)))*Fs);
+                    else
+                        xStim = round(xStim*Fs);
+                    end
+                    nAP = numel(xStim);
+                    synFreq = cellfun(@(x )sum(~isnan(x)), app.imgT.PeakInt{app.currCell}) / nAP * 100;
+                    plotRasterStim(app, tempTraces);
+                end
                 app.UITableSingle.Data = table(synN, synInt, synFreq, snr, synKeep);
                 app.UITableSingle.ColumnEditable = [false, false, false, false, true];
-                plotRaster(app, tempTraces);
                 app.newChange = true;
             else
                 % Clear the table and the axis
@@ -1733,42 +1900,74 @@ classdef GluTA < matlab.apps.AppBase
         end
         
         function populateCellTable(app)
-            if ~any(strcmp(app.imgT.Properties.VariableNames, 'Cell_CoV_InterSpikeInterval'))
-                ExtractPeakFeatures(app);
-            else
-                updateSpikeQuantification(app)
+            if all(contains(app.imgT.StimID, 'Naive'))
+                if ~any(strcmp(app.imgT.Properties.VariableNames, 'Cell_CoV_InterSpikeInterval'))
+                    ExtractPeakFeatures(app);
+                else
+                    updateSpikeQuantification(app)
+                end
+                dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+                cellID = app.imgT{dataFltr, 'ExperimentID'};
+                recID = app.imgT{dataFltr, 'ConditionID'};
+                cellKeep = app.imgT{dataFltr, 'KeepCell'};
+                Syn_Mean_Intensity = app.imgT.Syn_Mean_Intensity;
+                Syn_Mean_Prominence = app.imgT.Syn_Mean_Prominence;
+                Syn_Mean_Frequency = app.imgT.Syn_Mean_Frequency;
+                Syn_Skewness_Intensity = app.imgT.Syn_Skewness_Intensity;
+                Syn_Skewness_Prominence = app.imgT.Syn_Skewness_Prominence;
+                Syn_Skewness_Frequency = app.imgT.Syn_Skewness_Frequency;
+                Syn_CoV_Intensity = app.imgT.Syn_CoV_Intensity;
+                Syn_CoV_Prominence = app.imgT.Syn_CoV_Prominence;
+                Syn_CoV_Frequency = app.imgT.Syn_CoV_Frequency;
+                Sync_Frequency = app.imgT.Sync_Frequency;
+                Sync_Raw_MaxActiveSynapses = app.imgT.Sync_Raw_MaxActiveSynapses;
+                Sync_Percentage_MaxActiveSynapses = app.imgT.Sync_Percentage_MaxActiveSynapses;
+                Sync_Percentage_TimeActive = app.imgT.Sync_Percentage_TimeActive;
+                Sync_Percentage_TimeSync = app.imgT.Sync_Percentage_TimeSync;
+                Cell_Frequency = app.imgT.Cell_Frequency;
+                Cell_Mean_ActiveSynapses = app.imgT.Cell_Mean_ActiveSynapses;
+                Cell_Mean_PercentageSynapses = app.imgT.Cell_Mean_PercentageSynapses;
+                Cell_Mean_Intensity = app.imgT.Cell_Mean_Intensity;
+                Cell_Mean_InterSpikeInterval = app.imgT.Cell_Mean_InterSpikeInterval;
+                Cell_CoV_ActiveSynapses = app.imgT.Cell_CoV_ActiveSynapses;
+                Cell_CoV_Intensity = app.imgT.Cell_CoV_Intensity;
+                Cell_CoV_InterSpikeInterval = app.imgT.Cell_CoV_InterSpikeInterval;
+            elseif all(contains(app.imgT.StimID, 'Hz'))
+                if ~any(strcmp(app.imgT.Properties.VariableNames, 'Syn_Skewness_AUC'))
+                    ExctractStimFeatures(app);
+                end
+                dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
+                cellID = app.imgT{dataFltr, 'ExperimentID'};
+                recID = app.imgT{dataFltr, 'ConditionID'};
+                cellKeep = app.imgT{dataFltr, 'KeepCell'};
+                Syn_Mean_Intensity = app.imgT.Syn_Mean_Intensity;
+                Syn_Mean_Prominence = app.imgT.Syn_Mean_Prominence;
+                Syn_Mean_Frequency = app.imgT.Syn_Mean_AUC;
+                Syn_Skewness_Intensity = app.imgT.Syn_Skewness_Intensity;
+                Syn_Skewness_Prominence = app.imgT.Syn_Skewness_Prominence;
+                Syn_Skewness_Frequency = app.imgT.Syn_Skewness_AUC;
+                Syn_CoV_Intensity = app.imgT.Syn_CoV_Intensity;
+                Syn_CoV_Prominence = app.imgT.Syn_CoV_Prominence;
+                Syn_CoV_Frequency = app.imgT.Syn_CoV_AUC;
+                Sync_Frequency = app.imgT.Stim_FirstEvoked;
+                Sync_Raw_MaxActiveSynapses = app.imgT.Stim_Raw_MaxActiveSynapses;
+                Sync_Percentage_MaxActiveSynapses = app.imgT.Stim_Percentage_MaxActiveSynapses;
+                Sync_Percentage_TimeActive = app.imgT.Stim_PPR;
+                Sync_Percentage_TimeSync = app.imgT.Stim_FFR;
+                Cell_Frequency = nan(height(app.imgT),1);
+                Cell_Mean_ActiveSynapses = nan(height(app.imgT),1);
+                Cell_Mean_PercentageSynapses = nan(height(app.imgT),1);
+                Cell_Mean_Intensity = nan(height(app.imgT),1);
+                Cell_Mean_InterSpikeInterval = nan(height(app.imgT),1);
+                Cell_CoV_ActiveSynapses = nan(height(app.imgT),1);
+                Cell_CoV_Intensity = nan(height(app.imgT),1);
+                Cell_CoV_InterSpikeInterval = nan(height(app.imgT),1);
             end
-            dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
-            cellID = app.imgT{dataFltr, 'ExperimentID'};
-            recID = app.imgT{dataFltr, 'ConditionID'};
-            cellKeep = app.imgT{dataFltr, 'KeepCell'};
-            Syn_Mean_Intensity = app.imgT.Syn_Mean_Intensity;
-            Syn_Mean_Prominence = app.imgT.Syn_Mean_Prominence;
-            Syn_Mean_Frequency = app.imgT.Syn_Mean_Frequency;
-            Syn_Skewness_Intensity = app.imgT.Syn_Skewness_Intensity;
-            Syn_Skewness_Prominence = app.imgT.Syn_Skewness_Prominence;
-            Syn_Skewness_Frequency = app.imgT.Syn_Skewness_Frequency;
-            Syn_CoV_Intensity = app.imgT.Syn_CoV_Intensity;
-            Syn_CoV_Prominence = app.imgT.Syn_CoV_Prominence;
-            Syn_CoV_Frequency = app.imgT.Syn_CoV_Frequency;
-            Sync_Frequency = app.imgT.Sync_Frequency;
-            Sync_Raw_MaxActiveSynapses = app.imgT.Sync_Raw_MaxActiveSynapses;
-            Sync_Percentage_MaxActiveSynapses = app.imgT.Sync_Percentage_MaxActiveSynapses;
-            Sync_Percentage_TimeActive = app.imgT.Sync_Percentage_TimeActive;
-            Sync_Percentage_TimeSync = app.imgT.Sync_Percentage_TimeSync;
-            Cell_Frequency = app.imgT.Cell_Frequency;
-            Cell_Mean_ActiveSynapses = app.imgT.Cell_Mean_ActiveSynapses;
-            Cell_Mean_PercentageSynapses = app.imgT.Cell_Mean_PercentageSynapses;
-            Cell_Mean_Intensity = app.imgT.Cell_Mean_Intensity;
-            Cell_Mean_InterSpikeInterval = app.imgT.Cell_Mean_InterSpikeInterval;
-            Cell_CoV_ActiveSynapses = app.imgT.Cell_CoV_ActiveSynapses;
-            Cell_CoV_Intensity = app.imgT.Cell_CoV_Intensity;
-            Cell_CoV_InterSpikeInterval = app.imgT.Cell_CoV_InterSpikeInterval;
             app.UITableAll.Data = table(cellID, recID, cellKeep, Syn_Mean_Intensity, Syn_Mean_Prominence, Syn_Mean_Frequency,...
-                Syn_Skewness_Intensity, Syn_Skewness_Prominence, Syn_Skewness_Frequency, Syn_CoV_Intensity, Syn_CoV_Prominence,...
-                Syn_CoV_Frequency, Sync_Frequency, Sync_Raw_MaxActiveSynapses, Sync_Percentage_MaxActiveSynapses,...
-                Sync_Percentage_TimeActive, Sync_Percentage_TimeSync, Cell_Frequency, Cell_Mean_ActiveSynapses, Cell_Mean_PercentageSynapses,...
-                Cell_Mean_Intensity, Cell_Mean_InterSpikeInterval, Cell_CoV_ActiveSynapses, Cell_CoV_Intensity, Cell_CoV_InterSpikeInterval);
+                    Syn_Skewness_Intensity, Syn_Skewness_Prominence, Syn_Skewness_Frequency, Syn_CoV_Intensity, Syn_CoV_Prominence,...
+                    Syn_CoV_Frequency, Sync_Frequency, Sync_Raw_MaxActiveSynapses, Sync_Percentage_MaxActiveSynapses,...
+                    Sync_Percentage_TimeActive, Sync_Percentage_TimeSync, Cell_Frequency, Cell_Mean_ActiveSynapses, Cell_Mean_PercentageSynapses,...
+                    Cell_Mean_Intensity, Cell_Mean_InterSpikeInterval, Cell_CoV_ActiveSynapses, Cell_CoV_Intensity, Cell_CoV_InterSpikeInterval);
         end
         
         function plotRaster(app, tempTraces, varargin)
@@ -1827,6 +2026,75 @@ classdef GluTA < matlab.apps.AppBase
             plotAx2.TickDir = 'out';
         end
         
+        function plotRasterStim(app, tempTraces, varargin)
+            if nargin == 4
+                plotAx1 = varargin{1};
+                plotAx2 = varargin{2};
+            else
+                plotAx1 = app.UIAxesRaster;
+                plotAx2 = app.UIAxesOverview;
+            end
+            tempRaster = tempTraces;
+            keepSyn = app.imgT.KeepSyn{app.currCell};
+            Fs = app.imgT.Fs(app.currCell);
+            time = (0:length(tempRaster)-1) / Fs;
+            % Get the information on the stimulation
+            stimID = find(matches(app.stim.StimID, app.imgT.StimID(app.currCell)));
+            xStim = app.stim.Baseline(stimID):1/app.stim.FreqAP(stimID):(app.stim.Baseline(stimID))+(1/app.stim.FreqAP(stimID))*(app.stim.nAP(stimID)-1);
+            if app.stim.nTrains(stimID) > 1
+                % There are multiple movies merged into 1. Split them and work on each movie separate
+                movDiv = numel(time) / app.stim.nTrains(stimID);
+                movS = 1:movDiv:numel(time);
+                movS = time(movS);
+                xStim = repmat(xStim, 1, app.stim.nTrains(stimID)) + repelem(movS, app.stim.nAP(stimID));
+            end
+            xPatch([1 4],:) = ones(2,1) * (xStim - 0.005);
+            xPatch([2 3],:) = ones(2,1) * (xStim + 0.005);
+            yPatch = repmat([0; 0; .1; .1], 1, numel(xStim));
+            hStim = patch(plotAx1, xPatch, yPatch, [.0 .8 .8], 'EdgeColor', 'none', 'FaceAlpha', .75, 'HitTest', 'off', 'ButtonDownFcn', '');
+            hold(plotAx1, 'on');
+            % Space the line in the raster
+            cellSpace = max(tempRaster,[],'all') / 3;
+            cellNum = (1:size(tempRaster,2)) * cellSpace;
+            tempRaster = tempRaster + repmat(cellNum,size(tempRaster,1),1);
+            plot(plotAx1, time, tempRaster, 'k', 'HitTest', 'off', 'ButtonDownFcn', '');
+            % Adjust the color based on the keep data
+            if app.imgT.KeepCell(app.currCell)
+                cmap = [0 0 0; 0.9 0.9 0.9];
+            else
+                cmap = app.keepColor([3; 4],:);
+            end
+            for s = 1:numel(keepSyn)
+                keepIdx = numel(keepSyn) - s +1;
+                if keepSyn(s)
+                    plotAx1.Children(keepIdx).Color = cmap(1,:);
+                else
+                    plotAx1.Children(keepIdx).Color = cmap(2,:);
+                end
+            end
+            yMin = round(min(tempRaster,[],'all'), 2, 'significant');
+            yMax = round(max(tempRaster,[],'all'), 2, 'significant') + cellSpace;
+            plotAx1.YLim = [yMin, yMax];
+            plotAx1.YTick = linspace(yMin+cellSpace, yMax-cellSpace, size(tempRaster,2));
+            plotAx1.YTickLabel = 1:size(tempRaster,2);
+            title(plotAx1, regexprep(app.imgT.CellID(app.currCell), '_', ' '))
+            box(plotAx1, 'off');
+            plotAx1.TickDir = 'out';
+            hStim.YData = repmat(repelem([yMin; yMax],2), 1, numel(xStim));
+            % Plot the average trace
+            cla(plotAx2, 'reset')
+            tempSync = app.imgT.PeakSync{app.currCell};
+            nSyn = size(tempRaster,2);
+            yyaxis(plotAx2, 'left');
+            area(plotAx2, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
+            ylabel(plotAx2, '% of synapses')
+            yyaxis(plotAx2, 'right');
+            plot(plotAx2, time, mean(tempTraces(:,keepSyn),2), 'r');
+            ylabel(plotAx2, 'iGluSnFR intensity (a.u.)')
+            box(plotAx2, 'off');
+            plotAx2.TickDir = 'out';
+        end
+        
         function updateRaster(app, event)
             newKeep = app.UITableSingle.Data.synKeep;
             nKeep = numel(newKeep);
@@ -1848,7 +2116,7 @@ classdef GluTA < matlab.apps.AppBase
             tempTraces = app.imgT.DetrendData{app.currCell};
             Fs = app.imgT.Fs(app.currCell);
             time = (0:length(tempTraces)-1) / Fs;
-            tempSync = calculateSynchronous(app, app.imgT.PeakLoc{app.currCell}, length(tempTraces), numel(newKeep), newKeep);
+            tempSync = calculateSynchronous(app, app.imgT.PeakLoc{app.currCell}, length(tempTraces), numel(newKeep), newKeep, Fs, false);
             nSyn = size(tempTraces,2);
             yyaxis(app.UIAxesOverview, 'left');
             area(app.UIAxesOverview, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
@@ -2083,6 +2351,11 @@ classdef GluTA < matlab.apps.AppBase
                 cmap(c,:) = sscanf(cmap1{c}(2:end),'%2x%2x%2x',[1 3])/255;
             end
         end
+    end
+    
+    % Method for table tab for stimulation recordings
+    methods (Access = private)
+        
     end
     
     % Create the UIFigure and components
