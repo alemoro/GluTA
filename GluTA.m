@@ -1216,8 +1216,10 @@ classdef GluTA < matlab.apps.AppBase
                     end
                     hold(plotAx, 'on')
                     hLeg(1) = plot(plotAx, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
+                    if size(tempData,2) > 1
                     plot(plotAx, time, tempData(:,2:end), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
                     hLeg(2) = plot(plotAx, time, mean(tempData(:,bSyn),2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:), 'HitTest', 'off', 'ButtonDownFcn', '');
+                    end
                     if any(strcmp(app.imgT.Properties.VariableNames, 'Sync_PeakLocation'))
                         if ~isempty(app.imgT.Sync_PeakLocation{app.currCell})
                             tempNetLoc = app.imgT.Sync_PeakLocation{app.currCell}{2};
@@ -1796,7 +1798,7 @@ classdef GluTA < matlab.apps.AppBase
                         % QUANTAL ANALYSIS FOR THE PEAKS? SEE 10.1038/s41467-022-31070-4 %
                         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                         % Get the stimulation-based quantifications
-                        app.imgT.Stim_Resiliance{c} = stimRes / nSyn * 100;
+                        app.imgT.Stim_Resiliance{c} = stimRes;
 %                         app.imgT.Stim_FirstEvoked(c) = mean(cellfun(@(x) x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
 %                         app.imgT.Stim_PPR(c) = mean(cellfun(@(x) x(2)/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
 %                         app.imgT.Stim_FFR(c) = mean(cellfun(@(x) x(min(5, nAP))/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan'); % Fifth to First Ratio
@@ -1904,7 +1906,7 @@ classdef GluTA < matlab.apps.AppBase
                 if ~any(strcmp(app.imgT.Properties.VariableNames, 'Cell_CoV_InterSpikeInterval'))
                     ExtractPeakFeatures(app);
                 else
-                    updateSpikeQuantification(app)
+%                     updateSpikeQuantification(app)
                 end
                 dataFltr = find(cellfun(@(x) ~isempty(x), app.imgT.PeakLoc));
                 cellID = app.imgT{dataFltr, 'ExperimentID'};
