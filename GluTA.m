@@ -480,7 +480,7 @@ classdef GluTA < matlab.apps.AppBase
                         if any(matches({'40Hz', '100Hz'}, app.imgT.StimID{app.currCell}))
                             keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < app.stim.nTrains(stimID)*2/3, synLoc);
                         else
-                            keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*2/3, synLoc);
+                            keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*4/5, synLoc);
                         end
                     else
                         keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
