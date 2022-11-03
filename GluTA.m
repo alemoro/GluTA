@@ -1187,7 +1187,7 @@ classdef GluTA < matlab.apps.AppBase
                     tempData = wdenoise(tempData, 5, 'DenoisingMethod', 'BlockJS');
             end
             Fs = app.imgT.Fs(app.currCell);
-            time = (0:length(tempData)-1) / Fs;
+            time = (0:size(tempData,1)-1) / Fs;
             % Add some checks if there is stimulation needed
             if contains(app.imgT.StimID{app.currCell}, 'Hz')
                 if any(matches(app.stim.StimID, app.imgT.StimID{app.currCell}))
@@ -1211,13 +1211,18 @@ classdef GluTA < matlab.apps.AppBase
                 case 'All and mean'
                     if app.activeFltr
                         bSyn = app.imgT.KeepSyn{app.currCell};
+                        if isempty(bSyn)
+                            expID = app.imgT.ExperimentID{app.currCell};
+                            newID = ~isempty(app.imgT(contains(app.imgT.ExperimentID, expID), 'KeepSyn'));
+                            bSyn = app.imgT.KeepSyn{newID};
+                        end
                     else
                         bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
                     end
                     hold(plotAx, 'on')
                     hLeg(1) = plot(plotAx, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
                     if size(tempData,2) > 1
-                    plot(plotAx, time, tempData(:,2:end), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
+                    plot(plotAx, time, tempData(:,bSyn), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
                     hLeg(2) = plot(plotAx, time, mean(tempData(:,bSyn),2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:), 'HitTest', 'off', 'ButtonDownFcn', '');
                     end
                     if any(strcmp(app.imgT.Properties.VariableNames, 'Sync_PeakLocation'))
@@ -1294,8 +1299,21 @@ classdef GluTA < matlab.apps.AppBase
                 % If the are ROIs, show them
                 hold(app.UIAxesMovie, 'on')
                 p = gobjects(nRoi,1);
+                % Check if there are info on the synapses
+                if app.activeFltr
+                    bSyn = app.imgT.KeepSyn{app.currCell};
+                    if isempty(bSyn)
+                        expID = app.imgT.ExperimentID{app.currCell};
+                        newID = ~isempty(app.imgT(contains(app.imgT.ExperimentID, expID), 'KeepSyn'));
+                        bSyn = app.imgT.KeepSyn{newID};
+                    end
+                else
+                    bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
+                end
+                cmap = app.keepColor([1 3],:);
+                bSyn = bSyn +1;
                 for r = 1:nRoi
-                    p(r) = patch(app.UIAxesMovie, 'Faces', [1 2 3 4], 'Vertices', [roiSet{r}([2 1]); roiSet{r}([2 3]); roiSet{r}([4 3]); roiSet{r}([4 1])], 'FaceColor', 'none', 'EdgeColor', [.0 .8 .8]);
+                    p(r) = patch(app.UIAxesMovie, 'Faces', [1 2 3 4], 'Vertices', [roiSet{r}([2 1]); roiSet{r}([2 3]); roiSet{r}([4 3]); roiSet{r}([4 1])], 'FaceColor', 'none', 'EdgeColor', cmap(bSyn(r),:));
                 end
                 app.patchMask = p;
             else
@@ -1390,7 +1408,7 @@ classdef GluTA < matlab.apps.AppBase
             switch app.PeakThresholdMethodDropDown.Value
                 case 'MAD'
                     tempThr = median(tempData(:,synN),'omitnan') + mad(tempData(:,synN)) * app.PeakSigmaEdit.Value * (-1 / (sqrt(2) * erfcinv(3/2)));
-                    tempThr = repmat(tempThr, length(tempData), 1);
+                    tempThr = repmat(tempThr, size(tempData,1), 1);
                 case 'Rolling StDev'
                     winSize = app.PeakMaxDurationEdit.Value + app.PeakMinDistanceEdit.Value;
                     tempMean = movmean(tempData(:,synN), winSize, 'omitnan');
