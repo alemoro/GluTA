@@ -480,7 +480,8 @@ classdef GluTA < matlab.apps.AppBase
                         if any(matches({'40Hz', '100Hz'}, app.imgT.StimID{app.currCell}))
                             keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < app.stim.nTrains(stimID)*2/3, synLoc);
                         else
-                            keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*4/5, synLoc);
+                            %keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*4/5, synLoc);
+                            keepSyn{cells} = cellfun(@(x) sum(~isnan(x)) >= 2, synLoc);
                         end
                     else
                         keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
@@ -1216,6 +1217,9 @@ classdef GluTA < matlab.apps.AppBase
                             newID = contains(app.imgT.ExperimentID, expID) & cellfun(@(x) ~isempty(x), app.imgT.KeepSyn);
                             bSyn = app.imgT.KeepSyn{newID};
                         end
+                        if sum(bSyn) == 0
+                            bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
+                        end
                     else
                         bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
                     end
@@ -1306,6 +1310,9 @@ classdef GluTA < matlab.apps.AppBase
                         expID = app.imgT.ExperimentID{app.currCell};
                         newID = contains(app.imgT.ExperimentID, expID) & cellfun(@(x) ~isempty(x), app.imgT.KeepSyn);
                         bSyn = app.imgT.KeepSyn{newID};
+                        if isempty(bSyn)
+                            bSyn = false(size(app.imgT.DetrendData{app.currCell},2),1);
+                        end
                     end
                 else
                     bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
