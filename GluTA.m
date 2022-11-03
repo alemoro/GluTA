@@ -1213,7 +1213,7 @@ classdef GluTA < matlab.apps.AppBase
                         bSyn = app.imgT.KeepSyn{app.currCell};
                         if isempty(bSyn)
                             expID = app.imgT.ExperimentID{app.currCell};
-                            newID = ~isempty(app.imgT(contains(app.imgT.ExperimentID, expID), 'KeepSyn'));
+                            newID = contains(app.imgT.ExperimentID, expID) & cellfun(@(x) ~isempty(x), app.imgT.KeepSyn);
                             bSyn = app.imgT.KeepSyn{newID};
                         end
                     else
@@ -1304,7 +1304,7 @@ classdef GluTA < matlab.apps.AppBase
                     bSyn = app.imgT.KeepSyn{app.currCell};
                     if isempty(bSyn)
                         expID = app.imgT.ExperimentID{app.currCell};
-                        newID = ~isempty(app.imgT(contains(app.imgT.ExperimentID, expID), 'KeepSyn'));
+                        newID = contains(app.imgT.ExperimentID, expID) & cellfun(@(x) ~isempty(x), app.imgT.KeepSyn);
                         bSyn = app.imgT.KeepSyn{newID};
                     end
                 else
