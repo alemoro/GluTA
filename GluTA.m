@@ -1769,41 +1769,41 @@ classdef GluTA < matlab.apps.AppBase
                     stimRes = cell2mat(stimRes);
                     stimRes = stimRes(3,:);
                     if nSyn > 0
-%                         % Mean, median, and variance for synapse
-%                         app.imgT.Syn_Mean_Intensity(c) = mean(synInt(synKeep));
-%                         app.imgT.Syn_Mean_Prominence(c) = mean(synProm(synKeep));
-%                         app.imgT.Syn_Mean_Resiliance(c) = mean(synRes(synKeep));
-%                         app.imgT.Syn_Mean_AUC(c) = mean(SynAUC(synKeep));
-%                         app.imgT.Syn_Median_Intensity(c) = median(synInt(synKeep));
-%                         app.imgT.Syn_Median_Prominence(c) = median(synProm(synKeep));
-%                         app.imgT.Syn_Median_Resiliance(c) = median(synRes(synKeep));
-%                         app.imgT.Syn_Median_AUC(c) = median(SynAUC(synKeep));
-%                         app.imgT.Syn_Variance_Intensity(c) = var(synInt(synKeep));
-%                         app.imgT.Syn_Variance_Prominence(c) = var(synProm(synKeep));
-%                         app.imgT.Syn_Variance_Resiliance(c) = var(synRes(synKeep));
-%                         app.imgT.Syn_Variance_AUC(c) = var(SynAUC(synKeep));
-%                         % Histogram description of all the synapses in one cell
-%                         app.imgT.Syn_Skewness_Intensity(c) = skewness(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
-%                         app.imgT.Syn_Skewness_Prominence(c) = skewness(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
-%                         app.imgT.Syn_Skewness_AUC(c) = skewness(cell2mat(app.imgT.PeakSNR{c}(synKeep)), 0);
-%                         app.imgT.Syn_Kurtosis_Intensity(c) = kurtosis(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0) -3;
-%                         app.imgT.Syn_Kurtosis_Prominence(c) = kurtosis(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0) -3;
-%                         app.imgT.Syn_Kurtosis_AUC(c) = kurtosis(cell2mat(app.imgT.PeakSNR{c}(synKeep)), 0) -3;
-%                         % Coefficient of variation between the synapses
-%                         app.imgT.Syn_CoV_Intensity(c) = sqrt(app.imgT.Syn_Variance_Intensity(c)) / app.imgT.Syn_Mean_Intensity(c);
-%                         app.imgT.Syn_CoV_Prominence(c) = sqrt(app.imgT.Syn_Variance_Prominence(c)) / app.imgT.Syn_Mean_Prominence(c);
-%                         app.imgT.Syn_CoV_Resiliance(c) = sqrt(app.imgT.Syn_Variance_Resiliance(c)) / app.imgT.Syn_Mean_Resiliance(c);
-%                         app.imgT.Syn_CoV_AUC(c) = sqrt(app.imgT.Syn_Variance_AUC(c)) / app.imgT.Syn_Mean_AUC(c);
+                        % Mean, median, and variance for synapse
+                        app.imgT.Syn_Mean_Intensity(c) = mean(synInt(synKeep));
+                        app.imgT.Syn_Mean_Prominence(c) = mean(synProm(synKeep));
+                        app.imgT.Syn_Mean_Resiliance(c) = mean(synRes(synKeep));
+                        app.imgT.Syn_Mean_AUC(c) = mean(SynAUC(synKeep));
+                        app.imgT.Syn_Median_Intensity(c) = median(synInt(synKeep));
+                        app.imgT.Syn_Median_Prominence(c) = median(synProm(synKeep));
+                        app.imgT.Syn_Median_Resiliance(c) = median(synRes(synKeep));
+                        app.imgT.Syn_Median_AUC(c) = median(SynAUC(synKeep));
+                        app.imgT.Syn_Variance_Intensity(c) = var(synInt(synKeep));
+                        app.imgT.Syn_Variance_Prominence(c) = var(synProm(synKeep));
+                        app.imgT.Syn_Variance_Resiliance(c) = var(synRes(synKeep));
+                        app.imgT.Syn_Variance_AUC(c) = var(SynAUC(synKeep));
+                        % Histogram description of all the synapses in one cell
+                        app.imgT.Syn_Skewness_Intensity(c) = skewness(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0);
+                        app.imgT.Syn_Skewness_Prominence(c) = skewness(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0);
+                        app.imgT.Syn_Skewness_AUC(c) = skewness(cell2mat(app.imgT.PeakSNR{c}(synKeep)), 0);
+                        app.imgT.Syn_Kurtosis_Intensity(c) = kurtosis(cell2mat(app.imgT.PeakInt{c}(synKeep)), 0) -3;
+                        app.imgT.Syn_Kurtosis_Prominence(c) = kurtosis(cell2mat(app.imgT.PeakProm{c}(synKeep)), 0) -3;
+                        app.imgT.Syn_Kurtosis_AUC(c) = kurtosis(cell2mat(app.imgT.PeakSNR{c}(synKeep)), 0) -3;
+                        % Coefficient of variation between the synapses
+                        app.imgT.Syn_CoV_Intensity(c) = sqrt(app.imgT.Syn_Variance_Intensity(c)) / app.imgT.Syn_Mean_Intensity(c);
+                        app.imgT.Syn_CoV_Prominence(c) = sqrt(app.imgT.Syn_Variance_Prominence(c)) / app.imgT.Syn_Mean_Prominence(c);
+                        app.imgT.Syn_CoV_Resiliance(c) = sqrt(app.imgT.Syn_Variance_Resiliance(c)) / app.imgT.Syn_Mean_Resiliance(c);
+                        app.imgT.Syn_CoV_AUC(c) = sqrt(app.imgT.Syn_Variance_AUC(c)) / app.imgT.Syn_Mean_AUC(c);
                         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                         % QUANTAL ANALYSIS FOR THE PEAKS? SEE 10.1038/s41467-022-31070-4 %
                         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
                         % Get the stimulation-based quantifications
                         app.imgT.Stim_Resiliance{c} = stimRes;
-%                         app.imgT.Stim_FirstEvoked(c) = mean(cellfun(@(x) x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
-%                         app.imgT.Stim_PPR(c) = mean(cellfun(@(x) x(2)/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
-%                         app.imgT.Stim_FFR(c) = mean(cellfun(@(x) x(min(5, nAP))/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan'); % Fifth to First Ratio
-%                         app.imgT.Stim_Raw_MaxActiveSynapses(c) = max(app.imgT.PeakSync{c});
-%                         app.imgT.Stim_Percentage_MaxActiveSynapses(c) = (max(app.imgT.PeakSync{c}) ./ nSyn * 100);
+                        app.imgT.Stim_FirstEvoked(c) = mean(cellfun(@(x) x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
+                        app.imgT.Stim_PPR(c) = mean(cellfun(@(x) x(2)/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
+                        app.imgT.Stim_FFR(c) = mean(cellfun(@(x) x(min(5, nAP))/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan'); % Fifth to First Ratio
+                        app.imgT.Stim_Raw_MaxActiveSynapses(c) = max(app.imgT.PeakSync{c});
+                        app.imgT.Stim_Percentage_MaxActiveSynapses(c) = (max(app.imgT.PeakSync{c}) ./ nSyn * 100);
                     else
                         % Mean, median, and variance for synapse
                         app.imgT.Syn_Mean_Intensity(c) = NaN;
