@@ -122,6 +122,7 @@ classdef GluTA < matlab.apps.AppBase
         UIAxesBox
         FigureMenu
         BoxMenu
+        ToggleActive
     end
     
     % Housekeeping properties
@@ -1269,6 +1270,14 @@ classdef GluTA < matlab.apps.AppBase
             drawnow();
         end
         
+        function ToogleActiveClicked(app)
+            app.activeFltr = app.ToggleActive.Value;
+            updatePlot(app);
+            if app.ShowROIsButton.Value
+                showROIs(app)
+            end
+        end
+        
         function updateOptions(app)
             app.ImagingFrequencyEdit.Value = app.Opt.ImgFrequency;
             app.MultipleRecordingCheckBox.Value = app.Opt.MultiRecording;
@@ -1318,9 +1327,10 @@ classdef GluTA < matlab.apps.AppBase
                     bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
                 end
                 cmap = app.keepColor([1 3],:);
+                edgeAlpha = [0.5 1];
                 bSyn = bSyn +1;
                 for r = 1:nRoi
-                    p(r) = patch(app.UIAxesMovie, 'Faces', [1 2 3 4], 'Vertices', [roiSet{r}([2 1]); roiSet{r}([2 3]); roiSet{r}([4 3]); roiSet{r}([4 1])], 'FaceColor', 'none', 'EdgeColor', cmap(bSyn(r),:));
+                    p(r) = patch(app.UIAxesMovie, 'Faces', [1 2 3 4], 'Vertices', [roiSet{r}([2 1]); roiSet{r}([2 3]); roiSet{r}([4 3]); roiSet{r}([4 1])], 'FaceColor', 'none', 'EdgeColor', cmap(bSyn(r),:), 'EdgeAlpha', edgeAlpha(bSyn(r)));
                 end
                 app.patchMask = p;
             else
@@ -1523,48 +1533,53 @@ classdef GluTA < matlab.apps.AppBase
                     % For the 40 and 100 Hz there can be only one peak per train
                     nAP = app.stim.nAP(stimID);
                     nTrains = app.stim.nTrains(stimID);
-                    xStim = reshape(xStim,5,5);
-                    % Add two frames at the end of the stimulation
-                    xStim(5,:) = xStim(5,:) + 2;
-                    tempSNR = nan(nTrains,1);
-                    for t = 1:nTrains
-                        minIdx = find((xStim(1,t) < tempLocs) & (tempLocs <= xStim(nAP,t)));
-                        if numel(minIdx) > 1
-                            % find the maximum peak
-                            [~, minIdx1] = max(tempPeak(minIdx));
-                            minIdx = minIdx(minIdx1);
-                        end
-                        if numel(minIdx) == 1
-                            if t == 1
-                                tempPeak = tempPeak(minIdx:end);
-                                tempLocs = tempLocs(minIdx:end);
-                                tempProm = tempProm(minIdx:end);
-                            elseif t == nTrains
-                                tempPeak = [tempPeak(1:t-1); tempPeak(minIdx)];
-                                tempLocs = [tempLocs(1:t-1); tempLocs(minIdx)];
-                                tempProm = [tempProm(1:t-1); tempProm(minIdx)];
-                            else
-                                tempPeak = [tempPeak(1:t-1); tempPeak(minIdx:end)];
-                                tempLocs = [tempLocs(1:t-1); tempLocs(minIdx:end)];
-                                tempProm = [tempProm(1:t-1); tempProm(minIdx:end)];
+                    if nTrains > 1
+                        xStim = reshape(xStim,5,5);
+                        % Add two frames at the end of the stimulation
+                        xStim(5,:) = xStim(5,:) + 2;
+                        tempSNR = nan(nTrains,1);
+                        for t = 1:nTrains
+                            minIdx = find((xStim(1,t) < tempLocs) & (tempLocs <= xStim(nAP,t)));
+                            if numel(minIdx) > 1
+                                % find the maximum peak
+                                [~, minIdx1] = max(tempPeak(minIdx));
+                                minIdx = minIdx(minIdx1);
                             end
-                        else
-                            if t < nTrains
-                                tempPeak = [tempPeak(1:t-1); NaN; tempPeak(t:end)];
-                                tempLocs = [tempLocs(1:t-1); NaN; tempLocs(t:end)];
-                                tempProm = [tempProm(1:t-1); NaN; tempProm(t:end)];
+                            if numel(minIdx) == 1
+                                if t == 1
+                                    tempPeak = tempPeak(minIdx:end);
+                                    tempLocs = tempLocs(minIdx:end);
+                                    tempProm = tempProm(minIdx:end);
+                                elseif t == nTrains
+                                    tempPeak = [tempPeak(1:t-1); tempPeak(minIdx)];
+                                    tempLocs = [tempLocs(1:t-1); tempLocs(minIdx)];
+                                    tempProm = [tempProm(1:t-1); tempProm(minIdx)];
+                                else
+                                    tempPeak = [tempPeak(1:t-1); tempPeak(minIdx:end)];
+                                    tempLocs = [tempLocs(1:t-1); tempLocs(minIdx:end)];
+                                    tempProm = [tempProm(1:t-1); tempProm(minIdx:end)];
+                                end
                             else
-                                tempPeak = [tempPeak(1:t-1); NaN];
-                                tempLocs = [tempLocs(1:t-1); NaN];
-                                tempProm = [tempProm(1:t-1); NaN];
+                                if t < nTrains
+                                    tempPeak = [tempPeak(1:t-1); NaN; tempPeak(t:end)];
+                                    tempLocs = [tempLocs(1:t-1); NaN; tempLocs(t:end)];
+                                    tempProm = [tempProm(1:t-1); NaN; tempProm(t:end)];
+                                else
+                                    tempPeak = [tempPeak(1:t-1); NaN];
+                                    tempLocs = [tempLocs(1:t-1); NaN];
+                                    tempProm = [tempProm(1:t-1); NaN];
+                                end
+                            end
+                            % Instead of the SNR, calculate the area under the curve during the stimulation
+                            if ~isnan(tempPeak(t))
+                                aucData = traceData(xStim(:,t));
+                                aucData = aucData+abs(min(aucData));
+                                tempSNR(t) = trapz(1/Fs, aucData);
                             end
                         end
-                        % Instead of the SNR, calculate the area under the curve during the stimulation
-                        if ~isnan(tempPeak(t))
-                            aucData = traceData(xStim(:,t));
-                            aucData = aucData+abs(min(aucData));
-                            tempSNR(t) = trapz(1/Fs, aucData);
-                        end
+                    else
+                        % There is not much that we can detect if not the area under the curve
+                        
                     end
                 end
             else
@@ -2589,6 +2604,8 @@ classdef GluTA < matlab.apps.AppBase
             app.TrainsIDsLabel = uilabel(app.StimulationProtocolPanel, 'Position', [8 93 52 22], 'Text', 'Identifier');
             app.TrainsIDsEdit = uieditfield(app.StimulationProtocolPanel, 'text', 'Position', [102 93 45 22], 'Value', '5Hz',...
                 'ValueChangedFcn', createCallbackFcn(app, @OptionChanged, false));
+            app.ToggleActive = uibutton(app.StimulationProtocolPanel, 'state', 'Text', 'Show active', 'Position', [340 25 100 22],...
+                'ValueChangedFcn', createCallbackFcn(app, @ToogleActiveClicked, false));
             
             % Create UITableSingle
             app.UITableSingle = uitable(app.TableTab, 'ColumnName', {'Synapse #'; 'Mean Int'; 'Freq'; 'SNR'; 'Keep'}, 'RowName', {}, 'Position', [25 12 381 888],...
