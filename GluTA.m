@@ -147,7 +147,7 @@ classdef GluTA < matlab.apps.AppBase
                     244 180 0] / 255;	% Google YELLOW
         tempAddPeak = []; % Array to store the temporaney peaks with manual detection
         activeFltr = false; % Boolean to use only the active synapses in "Main"
-        regMovie = true; % Boolean to register the stimulation to the naive recording
+        regMovie = false; % Boolean to register the stimulation to the naive recording
         stim = table('Size', [1 6], 'VariableTypes', ['string', repmat({'double'},1,5)],...
             'VariableNames', {'StimID' 'Baseline' 'nTrains', 'nAP', 'FreqAP' 'Merged'});
     end
@@ -167,7 +167,7 @@ classdef GluTA < matlab.apps.AppBase
                     imgFiles = dir(fullfile(imgPath, '*.tif'));
                     nFiles = numel(imgFiles);
                     if nFiles == 0
-                        warndlg('No tif images in the current folder');
+                        uiconfirm(app.UIFigure, 'no tif images in the current folder!', 'Warning', 'Icon', 'error');
                         togglePointer(app)
                         return
                     end
@@ -179,18 +179,34 @@ classdef GluTA < matlab.apps.AppBase
                     % Get the name info
                     nameParts = regexp({imgFiles.name}, '_', 'split')';
                     nameParts = nameParts(imgFltr);
+                    bNew = false;
+                    if contains(nameParts{1}{2}, '-')
+                        batchID = cellfun(@(x) regexp(x{2},'-','split'), nameParts, 'UniformOutput', false);
+                        batchID = cellfun(@(x) x{3}, batchID, 'UniformOutput', false);
+                        bNew = true;
+                    end
                     tempT(2:end,1) = fullfile({imgFiles(imgFltr).folder}, {imgFiles(imgFltr).name});
                     tempT(2:end,2) = cellfun(@(x) x(1:end-4), {imgFiles(imgFltr).name}, 'UniformOutput', false);
                     for f = 1:nFiles
                         waitbar(f/nFiles, hWait, sprintf('Loading movie data %0.2f%%', f/nFiles*100));
                         tempT{f+1,3} = weeknum(datetime(nameParts{f}{1}, 'InputFormat', 'yyMMdd'));
-                        tempT{f+1,4} = nameParts{f}{3};
-                        tempT{f+1,5} = nameParts{f}{2};
-                        tempT{f+1,6} = nameParts{f}{4};
-                        tempT{f+1,7} = nameParts{f}{5};
-                        tempT{f+1,8} = regexprep(nameParts{f}{6}, '.tif', '');
-                        % Get the experiment ID (batchID + coverslipID + FOV)
-                        tempT{f+1,9} = [nameParts{f}{3} '_' nameParts{f}{4} '_' nameParts{f}{5}];
+                        if ~bNew
+                            tempT{f+1,4} = nameParts{f}{3};
+                            tempT{f+1,5} = nameParts{f}{2};
+                            tempT{f+1,6} = nameParts{f}{4};
+                            tempT{f+1,7} = nameParts{f}{5};
+                            tempT{f+1,8} = regexprep(nameParts{f}{6}, '.tif', '');
+                            % Get the experiment ID (batchID + coverslipID + FOV)
+                            tempT{f+1,9} = [nameParts{f}{3} '_' nameParts{f}{4} '_' nameParts{f}{5}];
+                        else
+                            tempT{f+1,4} = batchID{f};
+                            tempT{f+1,5} = nameParts{f}{2};
+                            tempT{f+1,6} = nameParts{f}{3};
+                            tempT{f+1,7} = nameParts{f}{4};
+                            tempT{f+1,8} = regexprep(nameParts{f}{5}, '.tif', '');
+                            % Get the experiment ID (batchID + coverslipID + FOV)
+                            tempT{f+1,9} = [batchID{f} '_' nameParts{f}{3} '_' nameParts{f}{4}];
+                        end
                         % Try to get info on the actual timeStamp but not now
                         tempT{f+1,10} = app.Opt.ImgFrequency;
                     end
@@ -229,7 +245,7 @@ classdef GluTA < matlab.apps.AppBase
                 delete(hWait);
                 togglePointer(app);
                 disp(ME)
-                errordlg('Failed to load the data. Please check command window for details', 'Loading failed');
+                uiconfirm(app.UIFigure, 'Failed to load the data. Please check command window for details', 'Error', 'Icon', 'error');
             end
         end
         
@@ -320,7 +336,7 @@ classdef GluTA < matlab.apps.AppBase
             catch ME
                 togglePointer(app);
                 disp(ME)
-                errordlg('Failed to load the data. Please check command window for details', 'Loading failed');
+                uiconfirm(app.UIFigure, 'Failed to load the data. Please check command window for details', 'Error', 'Icon', 'error');
             end
         end
         
@@ -397,7 +413,10 @@ classdef GluTA < matlab.apps.AppBase
                 delete(app.patchMask)
             end
             if app.ShowROIsButton.Value
-                showROIs(app);
+                roiSet =  app.imgT.RoiSet(cellFltr);
+                if ~isempty(roiSet{1})
+                    showROIs(app);
+                end
             end
         end
         
@@ -452,7 +471,7 @@ classdef GluTA < matlab.apps.AppBase
             keepSyn = cell(nCell,1);
             syncPeak = cell(nCell,1);
             hWait = waitbar(0, 'Detecting peaks in data', 'Name', sprintf('Detecting %s', app.imgT.StimID{app.currCell}));
-            try
+%             try
                 for cells = 1:nCell
                     waitbar(cells/nCell, hWait, 'Detecting peaks in data');
                     c = cellIDs(cells);
@@ -467,10 +486,17 @@ classdef GluTA < matlab.apps.AppBase
                         %waitbar(cells/nCell, hWait, sprintf('Detecting peaks in data (%d/%d synapses)', s, nSyn), 'Name', sprintf('Detecting %s', app.imgT.StimID{app.currCell}));
                         tempThr = calculateThreshold(app, tempData, s);
                         peakInfo = DetectPeaks(app, tempData(:,s), tempThr);
-                        synInt{s} = peakInfo(:,1);
-                        synLoc{s} = peakInfo(:,2);
-                        synProm{s} = peakInfo(:,3);
-                        synSNR{s} = peakInfo(:,4);
+                        if ~isempty(peakInfo)
+                            synInt{s} = peakInfo(:,1);
+                            synLoc{s} = peakInfo(:,2);
+                            synProm{s} = peakInfo(:,3);
+                            synSNR{s} = peakInfo(:,4);
+                        else
+                            synInt{s} = 0;
+                            synLoc{s} = [];
+                            synProm{s} = 0;
+                            synSNR{s} = 0;
+                        end
                     end
                     peakLoc{cells} = synLoc;
                     peakInt{cells} = synInt;
@@ -479,7 +505,11 @@ classdef GluTA < matlab.apps.AppBase
                     if contains(app.imgT.StimID{app.currCell}, 'Hz')
                         stimID = find(matches(app.stim.StimID, app.imgT.StimID{app.currCell}));
                         if any(matches({'40Hz', '100Hz'}, app.imgT.StimID{app.currCell}))
-                            keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < app.stim.nTrains(stimID)*2/3, synLoc);
+                            if app.stim.nTrains(stimID) > 1
+                                keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < app.stim.nTrains(stimID)*2/3, synLoc);
+                            else
+                                keepSyn{cells} = ~isoutlier(cell2mat(synInt));
+                            end
                         else
                             %keepSyn{cells} = cellfun(@(x) sum(isnan(x)) < (app.stim.nAP(stimID)*app.stim.nTrains(stimID))*4/5, synLoc);
                             keepSyn{cells} = cellfun(@(x) sum(~isnan(x)) >= 2, synLoc);
@@ -488,7 +518,7 @@ classdef GluTA < matlab.apps.AppBase
                         keepSyn{cells} = cellfun(@(x) mean(x) >= 2.5, synSNR);
                     end
                     % Calculate the synchronous peaks (based on the minimum distance)
-                    syncPeak{cells} = calculateSynchronous(app, synLoc, length(tempData), nSyn, keepSyn{cells}, Fs, contains(app.imgT.StimID{app.currCell}, 'Hz'));
+                    syncPeak{cells} = calculateSynchronous(app, synLoc, size(tempData,1), nSyn, keepSyn{cells}, Fs, contains(app.imgT.StimID{app.currCell}, 'Hz'));
                 end
                 app.imgT.PeakLoc(cellIDs) = peakLoc;
                 app.imgT.PeakInt(cellIDs) = peakInt;
@@ -506,12 +536,12 @@ classdef GluTA < matlab.apps.AppBase
                 app.KeepCellToggle.Enable = 'on';
                 app.FileMenuExport.Enable = 'on';
                 app.newChange = true;
-            catch ME
-                sprintf('Error in cell %s at synapse %d.', app.imgT.CellID{c}, s)
-                disp(ME)
-                delete(hWait);
-                errordlg('Failed to detect peaks. Please check command window for details', 'Detection failed');
-            end
+%             catch ME
+%                 sprintf('Error in cell %s at synapse %d.', app.imgT.CellID{c}, s)
+%                 disp(ME)
+%                 delete(hWait);
+%                 uiconfirm(app.UIFigure, 'Failed to detect peaks. Please check command window for details', 'Error', 'Icon', 'error');
+%             end
         end
         
         function addManualPeak(app, clickedPoint)
@@ -549,7 +579,7 @@ classdef GluTA < matlab.apps.AppBase
             newSNR = newInt / median(tempData);
             % Check if there are other spikes in this area
             if any(allLoc >= searchArea(1) & allLoc <= searchArea(end))
-                errordlg('Peak already detected in this area', 'No more peaks');
+                uiconfirm(app.UIFigure, 'Peak already detected in this area', 'Error', 'Icon', 'error');
             else
                 % Show the new point
                 plot(app.UIAxesPlot, (newLoc-1)/Fs, newInt, 'ob');
@@ -770,7 +800,13 @@ classdef GluTA < matlab.apps.AppBase
                 for f = 1:nFiles
                     waitbar(f/nFiles, hWait, sprintf('Loading ROIs data %0.2f%%', f/nFiles*100));
                     % Match the ROI to the expetimentID
-                    expID = [nameParts{f}{4} '_' nameParts{f}{5} '_' nameParts{f}{6}];
+                    if size(nameParts{1},2) == 6
+                        expID = [nameParts{f}{4} '_' nameParts{f}{5} '_' nameParts{f}{6}];
+                    else
+                        batchID = cellfun(@(x) regexp(x{3},'-','split'), nameParts, 'UniformOutput', false);
+                        batchID = cellfun(@(x) x{3}, batchID, 'UniformOutput', false);
+                        expID = [batchID{f} '_' nameParts{f}{4} '_' nameParts{f}{5}];
+                    end
                     cellFltr = matches(app.imgT.ExperimentID, expID);
                     % Extract the ROIs
                     tempRoi = ReadImageJROI(fullfile({roiFiles(f).folder}, {roiFiles(f).name}));
@@ -788,7 +824,7 @@ classdef GluTA < matlab.apps.AppBase
                 delete(hWait);
                 togglePointer(app);
                 disp(ME)
-                errordlg('Failed to import the RoiSet. Please check command window for details', 'Import ROIs failed');
+                uiconfirm(app.UIFigure, 'Failed to load the RoiSet. Please check command window for details', 'Error', 'Icon', 'error');
             end
             app.ShowROIsButton.Enable = 'on';
             app.ShowROIsButton.Value = 1;
@@ -1056,9 +1092,9 @@ classdef GluTA < matlab.apps.AppBase
                     nSyn = sum(synKeep);
                     meanTrace = mean(tempTraces(:,synKeep),2);
                     % Get the single synapse quantification
-                    synInt = cellfun(@mean, app.imgT.PeakInt{c});
-                    synProm = cellfun(@mean, app.imgT.PeakProm{c});
-                    synFreq = cellfun(@numel, app.imgT.PeakInt{c}) / (nFrames/Fs);
+                    synInt = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakInt{c});
+                    synProm = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakProm{c});
+                    synFreq = cellfun(@(x) mean(x, 'omitnan'), app.imgT.PeakInt{c}) / (nFrames/Fs);
                     synISI = cellfun(@(x) diff(x) / Fs, app.imgT.PeakLoc{c}, 'UniformOutput', false);
                     if nSyn > 0
                         % Mean, median, and variance for synapse
@@ -1182,6 +1218,9 @@ classdef GluTA < matlab.apps.AppBase
             legend(plotAx, 'off');
             % Filter the cells that needs to be plotted
             tempData = app.imgT.DetrendData{app.currCell};
+            if isempty(tempData)
+                return
+            end
             switch app.VisualizeDropDown.Value
                 case 'Gradient'
                     tempData = gradient(tempData);
@@ -1227,13 +1266,19 @@ classdef GluTA < matlab.apps.AppBase
                     hold(plotAx, 'on')
                     hLeg(1) = plot(plotAx, time, tempData(:,1), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
                     if size(tempData,2) > 1
-                    plot(plotAx, time, tempData(:,bSyn), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
-                    hLeg(2) = plot(plotAx, time, mean(tempData(:,bSyn),2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:), 'HitTest', 'off', 'ButtonDownFcn', '');
+                        plot(plotAx, time, tempData(:,bSyn), 'Color', [.8 .8 .8], 'LineWidth', 0.5, 'HitTest', 'off', 'ButtonDownFcn', '');
+                        %hLeg(2) = plot(plotAx, time, max(tempData(:,bSyn),[],2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:), 'HitTest', 'off', 'ButtonDownFcn', '');
+                        hLeg(2) = plot(plotAx, time, mean(tempData(:,bSyn),2), 'Color', app.keepColor(app.imgT.KeepCell(app.currCell)+1,:), 'HitTest', 'off', 'ButtonDownFcn', '');
                     end
                     if any(strcmp(app.imgT.Properties.VariableNames, 'Sync_PeakLocation'))
                         if ~isempty(app.imgT.Sync_PeakLocation{app.currCell})
-                            tempNetLoc = app.imgT.Sync_PeakLocation{app.currCell}{2};
+                            basedOnAverage = false;
                             tempNetInt = mean(tempData(:,bSyn),2);
+                            if basedOnAverage
+                                tempNetLoc = app.imgT.Sync_PeakLocation{app.currCell}{2};
+                            else
+                                tempNetLoc = app.imgT.Sync_PeakLocation{app.currCell}{1};
+                            end
                             plot(plotAx, time(tempNetLoc), tempNetInt(tempNetLoc), 'sk', 'HitTest', 'off', 'ButtonDownFcn', '');
                         end
                     end
@@ -1248,6 +1293,9 @@ classdef GluTA < matlab.apps.AppBase
                         if ~isempty(app.imgT.PeakLoc{app.currCell})
                             tempLocs = app.imgT.PeakLoc{app.currCell}{synN};
                             tempInts = app.imgT.PeakInt{app.currCell}{synN};
+                            if tempInts == 0
+                                tempInts = [];
+                            end
                             plot(plotAx, (tempLocs-1) / Fs, tempInts, 'or', 'HitTest', 'off', 'ButtonDownFcn', '');
                         end
                     end
@@ -1306,7 +1354,7 @@ classdef GluTA < matlab.apps.AppBase
                 roiSet = app.imgT.RoiSet{app.currCell};
                 nRoi = numel(roiSet);
                 if nRoi == 0
-                    warndlg('This image does not have any ROIs');
+                    uiconfirm(app.UIFigure, 'This image does not have any ROIs', 'Warning', 'Icon', 'warning');
                     return
                 end
                 % If the are ROIs, show them
@@ -1324,7 +1372,8 @@ classdef GluTA < matlab.apps.AppBase
                         end
                     end
                 else
-                    bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
+                    %bSyn = true(size(app.imgT.DetrendData{app.currCell},2),1);
+                    bSyn = true(nRoi,1);
                 end
                 cmap = app.keepColor([1 3],:);
                 edgeAlpha = [0.5 1];
@@ -1377,7 +1426,7 @@ classdef GluTA < matlab.apps.AppBase
                 case 'None'
                     app.imgT.DetrendData(recList) = ff0Data;
                 case 'Moving median'
-                    warndlg('Not implemented yet!', 'Detrend failed');
+                    uiconfirm(app.UIFigure, 'not implemented yet!', 'Warning', 'Icon', 'info');
                 case 'Erosion'
                     for d = 1:nData
                         tempData = ff0Data{d};
@@ -1386,7 +1435,7 @@ classdef GluTA < matlab.apps.AppBase
                     end
                     app.imgT.DetrendData(recList) = detData;
                 case 'Polynomial'
-                    warndlg('Not implemented yet!', 'Detrend failed');
+                    uiconfirm(app.UIFigure, 'not implemented yet!', 'Warning', 'Icon', 'info');
             end
             updatePlot(app);
             figure(app.UIFigure);
@@ -1578,12 +1627,29 @@ classdef GluTA < matlab.apps.AppBase
                             end
                         end
                     else
-                        % There is not much that we can detect if not the area under the curve
-                        
+                        % first filter out the peaks that are outside the stimulation area
+                        tempFltr = tempLocs >= xStim(1) & tempLocs <= xStim(end);
+                        tempPeak = tempPeak(tempFltr);
+                        tempLocs = tempLocs(tempFltr);
+                        tempProm = tempProm(tempFltr);
+                        if numel(tempLocs) >= 1
+                            % find the maximum peak
+                            [~, minIdx] = max(tempPeak);
+                            tempPeak = tempPeak(minIdx);
+                            tempLocs = tempLocs(minIdx);
+                            tempProm = tempProm(minIdx);
+                        else
+                            tempSNR = tempPeak;
+                        end
+                        % Instead of the SNR, calculate the area under the curve during the stimulation
+                        if ~isnan(tempPeak)
+                            aucData = traceData(xStim);
+                            aucData = aucData+abs(min(aucData));
+                            tempSNR = trapz(1/Fs, aucData);
+                        end
                     end
                 end
             else
-                [tempPeak, tempLocs, ~, tempProm] = findpeaks(traceData, 'MinPeakProminence', minProm, 'WidthReference', 'halfprom', 'MinPeakWidth', minDura, 'MaxPeakWidth', maxDura, 'MinPeakDistance', minDist);
                 tempSNR = tempPeak / median(traceData);
             end
             % Calculate the boundaries
@@ -1788,7 +1854,7 @@ classdef GluTA < matlab.apps.AppBase
                     % Get the information on the stimulation
                     stimID = find(matches(app.stim.StimID, app.imgT.StimID(c)));
                     meanTrace = mean(tempTraces(:,synKeep),2, 'omitnan');
-                    time = (0:length(tempTraces)-1) / Fs;
+                    time = (0:size(tempTraces,1)-1) / Fs;
                     xStim = app.stim.Baseline(stimID):1/app.stim.FreqAP(stimID):(app.stim.Baseline(stimID))+(1/app.stim.FreqAP(stimID))*(app.stim.nAP(stimID)-1);
                     if app.stim.nTrains(stimID) > 1
                         % There are multiple movies merged into 1. Split them and work on each movie separate
@@ -1840,8 +1906,13 @@ classdef GluTA < matlab.apps.AppBase
                         % Get the stimulation-based quantifications
                         app.imgT.Stim_Resiliance{c} = stimRes;
                         app.imgT.Stim_FirstEvoked(c) = mean(cellfun(@(x) x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
-                        app.imgT.Stim_PPR(c) = mean(cellfun(@(x) x(2)/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
-                        app.imgT.Stim_FFR(c) = mean(cellfun(@(x) x(min(5, nAP))/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan'); % Fifth to First Ratio
+                        if numel(app.imgT.PeakProm{c}{synKeep}) > 1
+                            app.imgT.Stim_PPR(c) = mean(cellfun(@(x) x(2)/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan');
+                            app.imgT.Stim_FFR(c) = mean(cellfun(@(x) x(min(5, nAP))/x(1), app.imgT.PeakProm{c}(synKeep)), 'omitnan'); % Fifth to First Ratio
+                        else
+                            app.imgT.Stim_PPR(c) = 0;
+                            app.imgT.Stim_FFR(c) = 0;
+                        end
                         app.imgT.Stim_Raw_MaxActiveSynapses(c) = max(app.imgT.PeakSync{c});
                         app.imgT.Stim_Percentage_MaxActiveSynapses(c) = (max(app.imgT.PeakSync{c}) ./ nSyn * 100);
                     else
@@ -2005,11 +2076,11 @@ classdef GluTA < matlab.apps.AppBase
                 Cell_CoV_Intensity = nan(height(app.imgT),1);
                 Cell_CoV_InterSpikeInterval = nan(height(app.imgT),1);
             end
-            app.UITableAll.Data = table(cellID, recID, cellKeep, Syn_Mean_Intensity, Syn_Mean_Prominence, Syn_Mean_Frequency,...
-                    Syn_Skewness_Intensity, Syn_Skewness_Prominence, Syn_Skewness_Frequency, Syn_CoV_Intensity, Syn_CoV_Prominence,...
-                    Syn_CoV_Frequency, Sync_Frequency, Sync_Raw_MaxActiveSynapses, Sync_Percentage_MaxActiveSynapses,...
-                    Sync_Percentage_TimeActive, Sync_Percentage_TimeSync, Cell_Frequency, Cell_Mean_ActiveSynapses, Cell_Mean_PercentageSynapses,...
-                    Cell_Mean_Intensity, Cell_Mean_InterSpikeInterval, Cell_CoV_ActiveSynapses, Cell_CoV_Intensity, Cell_CoV_InterSpikeInterval);
+            app.UITableAll.Data = table(cellID, recID, cellKeep, Syn_Mean_Intensity(dataFltr), Syn_Mean_Prominence(dataFltr), Syn_Mean_Frequency(dataFltr),...
+                    Syn_Skewness_Intensity(dataFltr), Syn_Skewness_Prominence(dataFltr), Syn_Skewness_Frequency(dataFltr), Syn_CoV_Intensity(dataFltr), Syn_CoV_Prominence(dataFltr),...
+                    Syn_CoV_Frequency(dataFltr), Sync_Frequency(dataFltr), Sync_Raw_MaxActiveSynapses(dataFltr), Sync_Percentage_MaxActiveSynapses(dataFltr),...
+                    Sync_Percentage_TimeActive(dataFltr), Sync_Percentage_TimeSync(dataFltr), Cell_Frequency(dataFltr), Cell_Mean_ActiveSynapses(dataFltr), Cell_Mean_PercentageSynapses(dataFltr),...
+                    Cell_Mean_Intensity(dataFltr), Cell_Mean_InterSpikeInterval(dataFltr), Cell_CoV_ActiveSynapses(dataFltr), Cell_CoV_Intensity(dataFltr), Cell_CoV_InterSpikeInterval(dataFltr));
         end
         
         function plotRaster(app, tempTraces, varargin)
@@ -2079,7 +2150,7 @@ classdef GluTA < matlab.apps.AppBase
             tempRaster = tempTraces;
             keepSyn = app.imgT.KeepSyn{app.currCell};
             Fs = app.imgT.Fs(app.currCell);
-            time = (0:length(tempRaster)-1) / Fs;
+            time = (0:size(tempRaster,1)-1) / Fs;
             % Get the information on the stimulation
             stimID = find(matches(app.stim.StimID, app.imgT.StimID(app.currCell)));
             xStim = app.stim.Baseline(stimID):1/app.stim.FreqAP(stimID):(app.stim.Baseline(stimID))+(1/app.stim.FreqAP(stimID))*(app.stim.nAP(stimID)-1);
@@ -2157,8 +2228,8 @@ classdef GluTA < matlab.apps.AppBase
             cla(app.UIAxesOverview, 'reset')
             tempTraces = app.imgT.DetrendData{app.currCell};
             Fs = app.imgT.Fs(app.currCell);
-            time = (0:length(tempTraces)-1) / Fs;
-            tempSync = calculateSynchronous(app, app.imgT.PeakLoc{app.currCell}, length(tempTraces), numel(newKeep), newKeep, Fs, false);
+            time = (0:size(tempTraces,1)-1) / Fs;
+            tempSync = calculateSynchronous(app, app.imgT.PeakLoc{app.currCell}, size(tempTraces,1), numel(newKeep), newKeep, Fs, false);
             nSyn = size(tempTraces,2);
             yyaxis(app.UIAxesOverview, 'left');
             area(app.UIAxesOverview, time, tempSync/nSyn*100, 'EdgeColor', 'none', 'FaceColor', [38 134 197]/255, 'FaceAlpha', .5)
