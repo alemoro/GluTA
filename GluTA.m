@@ -697,21 +697,28 @@ classdef GluTA < matlab.apps.AppBase
             fltrVal = str2double(inputdlg('Choose the minimum value', 'Filter value'));
             % Get the right cell
             tempKeep = app.UITableSingle.Data.synKeep;
+            stimFltr = find(contains(app.imgT.StimID, app.imgT.StimID{app.currCell}));
             switch event.Source.Text
                 case 'Mean Intensity'
                     % Get the averave intensity of the synapses
                     tempPeak = app.UITableSingle.Data.synInt;
                     tempKeep = tempPeak > fltrVal;
+                    for s = stimFltr'
+                        tempPeaks = app.imgT.PeakProm{s};
+                        filtered = cellfun(@(x) mean(x, 'omitnan') > fltrVal, tempPeaks);
+                        app.imgT.KeepSyn{s} = filtered;
+                    end
                 case 'Mean Frequency'
                     % Get the frequency of spikes per synapse
                     tempFreq = app.UITableSingle.Data.synFreq;
                     tempKeep = tempFreq > fltrVal;
+                    app.imgT.KeepSyn{app.currCell} = tempKeep;
                 case 'Mean SNR'
                     tempSNR = app.UITableSingle.Data.snr;
                     tempKeep = tempSNR >= fltrVal;
+                    app.imgT.KeepSyn{app.currCell} = tempKeep;
             end
             % Store the new values and update the raster plot
-            app.imgT.KeepSyn{app.currCell} = tempKeep;
             app.UITableSingle.Data.synKeep = tempKeep;
             updateRaster(app);
             app.newChange = true;
@@ -844,7 +851,7 @@ classdef GluTA < matlab.apps.AppBase
                 waitbar(c/numel(cellFltr), hWait, sprintf('Loading ROIs data %0.2f%%', c/numel(cellFltr)*100));
                 try
                     % Load the movie
-                    currMovie = double(loadMovie(app, c, true));
+                    currMovie = double(loadMovie(app, c, false));
                     nFrames = size(currMovie,3);
                     % Get the ROIs data
                     roiSet = app.imgT.RoiSet{c};
